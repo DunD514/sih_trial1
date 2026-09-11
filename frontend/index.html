@@ -28,25 +28,73 @@
         <p class="brand-subtitle">SIH26167 &bull; Multimodal Remote Sensing AI Assistant &bull; Powered by ChangeFormerV6</p>
       </div>
     </div>
-    <div class="header-badges">
-      <span class="badge badge-cuda"><span class="pulse-dot"></span> CUDA Accelerated (RTX 4050)</span>
-      <span class="badge badge-model">ChangeFormerV6 Baseline</span>
-      <span class="badge badge-agent">Agent Orchestrator Active</span>
+    <div class="header-right">
+      <!-- JARVIS Toggle -->
+      <div class="jarvis-toggle-group" id="jarvis-toggle-group">
+        <span class="jarvis-label-left">JARVIS</span>
+        <button class="jarvis-toggle-btn" id="jarvis-toggle" title="Toggle JARVIS Mode" aria-pressed="false">
+          <span class="jarvis-dot" id="jarvis-dot"></span>
+        </button>
+        <span class="jarvis-toggle-label" id="jarvis-label">OFF</span>
+      </div>
+      <!-- Header Badges -->
+      <div class="header-badges">
+        <span class="badge badge-cuda"><span class="pulse-dot"></span> CUDA (GTX 1650)</span>
+        <span class="badge badge-model">ChangeFormerV6</span>
+        <span class="badge badge-voice" id="jarvis-voice-badge">VOICE: Neural Ready</span>
+        <span class="badge badge-agent" id="jarvis-status-badge">Agent Orchestrator Active</span>
+      </div>
     </div>
   </header>
+
+  <!-- JARVIS Command Bar (shown when JARVIS is ON) -->
+  <div class="jarvis-bar" id="jarvis-bar">
+    <div class="jarvis-bar-inner">
+      <div class="jarvis-status-strip">
+        <span class="jarvis-bar-pulse" id="jarvis-status-dot"></span>
+        <span id="jarvis-listening-text">JARVIS ONLINE &mdash; Speak or type a command</span>
+        <div class="jarvis-voice-indicator" id="jarvis-voice-indicator" style="display: none;">
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+        </div>
+        <span class="jarvis-model-tag">qwen3:8b</span>
+      </div>
+      <div class="jarvis-input-row">
+        <button class="jarvis-mic-btn" id="jarvis-mic-btn" title="Voice Input (Click to speak / Interrupt)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="23"></line>
+            <line x1="8" y1="23" x2="16" y2="23"></line>
+          </svg>
+        </button>
+        <textarea id="jarvis-input" class="jarvis-textarea" placeholder="e.g. 'What changed between these images?' or 'Show me the biggest change.'" rows="1"></textarea>
+        <button class="jarvis-submit-btn" id="jarvis-submit-btn" title="Send Query">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+      <div class="jarvis-conversation" id="jarvis-conversation"></div>
+    </div>
+  </div>
 
   <!-- Main 3-Pane Workspace -->
   <main class="app-container">
     
-    <!-- LEFT PANE: Controls & Uploads -->
+    <!-- LEFT PANE: Mission Control & Data Ingestion -->
     <aside class="panel left-panel">
       <div class="panel-header">
-        <h2>Input &amp; Configuration</h2>
-        <span class="panel-tag">Step 1</span>
+        <h2>Mission Ingestion</h2>
+        <span class="panel-tag">Dual-Sensor</span>
       </div>
 
+      <!-- Sample Dataset Dropdown -->
       <div class="control-group">
-        <label class="control-label">Quick-Load Demo Sample</label>
+        <label class="control-label" for="sample-select">Load Benchmark Sample</label>
         <select id="sample-select" class="form-select">
           <option value="">Select pre-loaded sample pair...</option>
         </select>
@@ -100,9 +148,9 @@
         <select id="task-select" class="form-select">
           <option value="auto">Auto-Detect Task (Agentic Router)</option>
           <option value="change_analysis">Bi-temporal Change Analysis (ChangeFormerV6)</option>
-          <option value="single_vqa">Single-Image Visual Question Answering</option>
+          <option value="single_vqa">Single-Image Visual Question Answering (ViLT)</option>
           <option value="captioning">Remote Sensing Scene Captioning</option>
-          <option value="grounding">Text-Guided Region Grounding</option>
+          <option value="grounding">Text-Guided Region Grounding (OWL-ViT)</option>
           <option value="optical_sar_fusion">Optical + SAR Cross-Modal Fusion</option>
         </select>
       </div>
@@ -145,6 +193,7 @@
         </div>
       </div>
 
+      <!-- Canvas & Image Viewer Stage -->
       <div class="viewer-viewport">
         <!-- Interactive Overlay View -->
         <div class="tab-content active" id="tab-interactive-overlay">
@@ -212,6 +261,13 @@
         <span class="panel-tag live-tag">Agent Live</span>
       </div>
 
+      <!-- Evidence Provenance Badge -->
+      <div class="provenance-strip" id="jarvis-provenance-strip" style="display: none;">
+        <span class="provenance-label">SOURCE OF ANSWER:</span>
+        <span class="provenance-value" id="provenance-source">ChangeFormerV6</span>
+        <span class="provenance-id" id="provenance-id">ID: --</span>
+      </div>
+
       <!-- AI Response Box -->
       <div class="intelligence-card">
         <div class="card-title-row">
@@ -223,6 +279,22 @@
         </div>
       </div>
 
+      <!-- WHY THIS RESULT CARD (JARVIS 2.0) -->
+      <div class="jarvis-card why-result-card" id="why-result-card" style="display: none;">
+        <div class="card-title-row">
+          <span class="card-icon">&#128270;</span>
+          <span class="card-title">Why This Result?</span>
+          <span class="jarvis-mini-tag">Evidence Analysis</span>
+        </div>
+        <div class="why-result-body" id="why-result-body">
+          <div class="detail-row"><strong>Model:</strong> <span id="why-result-model">--</span></div>
+          <div class="detail-row"><strong>Inputs:</strong> <span id="why-result-inputs">--</span></div>
+          <div class="detail-row"><strong>Meaning:</strong> <span id="why-result-meaning">--</span></div>
+          <div class="detail-row"><strong>Confidence:</strong> <span id="why-result-confidence">--</span></div>
+          <div class="detail-row"><strong>Limitations:</strong> <span id="why-result-limitations">--</span></div>
+        </div>
+      </div>
+
       <!-- Semantic Land Cover / Change Category -->
       <div class="info-card">
         <div class="card-title-row">
@@ -231,15 +303,59 @@
         </div>
         <div class="tags-cloud" id="semantic-tags">
           <span class="tag">ChangeFormerV6 Active</span>
-          <span class="tag">RS-VQA Multi-Task Head</span>
+          <span class="tag">ViLT-B32 VQA</span>
+          <span class="tag">OWL-ViT Grounding</span>
         </div>
       </div>
 
-      <!-- Execution Trace Timeline -->
+      <!-- WHY THIS MATTERS CARD (JARVIS 2.0) -->
+      <div class="why-matters-card" id="why-matters-card">
+        <div class="card-title-row">
+          <span class="card-icon">&#127757;</span>
+          <span class="card-title">Why This Matters</span>
+        </div>
+        <div class="answer-body why-matters-text" id="why-matters-text">
+          Enable JARVIS Mode and run an analysis to see potential significance.
+        </div>
+      </div>
+
+      <!-- RECOMMENDED NEXT STEP CARD (JARVIS 2.0) -->
+      <div class="jarvis-card recommended-next-card" id="recommended-next-card" style="display: none;">
+        <div class="card-title-row">
+          <span class="card-icon">&#129517;</span>
+          <span class="card-title">Recommended Next Step</span>
+        </div>
+        <div class="answer-body" id="recommended-next-text">
+          Review the largest detected change cluster on the interactive overlay.
+        </div>
+      </div>
+
+      <!-- EXECUTIVE SUMMARY CARD (JARVIS 2.0) -->
+      <div class="exec-summary-card" id="exec-summary-card">
+        <div class="card-title-row">
+          <span class="card-icon">&#128203;</span>
+          <span class="card-title">Executive Summary</span>
+        </div>
+        <div id="exec-summary-content" class="exec-summary-body">
+          <span class="exec-placeholder">Run JARVIS analysis to generate executive summary.</span>
+        </div>
+      </div>
+
+      <!-- JARVIS Agent Progress Trace -->
+      <div class="jarvis-trace-card" id="jarvis-trace-card">
+        <div class="card-title-row">
+          <span class="card-icon">&#9889;</span>
+          <span class="card-title">JARVIS Agent Trace</span>
+          <span class="jarvis-trace-badge">qwen3:8b</span>
+        </div>
+        <ol class="trace-timeline" id="jarvis-trace-list"></ol>
+      </div>
+
+      <!-- Standard Execution Trace Timeline -->
       <div class="trace-card">
         <div class="card-title-row">
           <span class="card-icon">&#9881;</span>
-          <span class="card-title">Agent Execution Trace</span>
+          <span class="card-title">Standard Execution Trace</span>
         </div>
         <ol class="trace-timeline" id="trace-list">
           <li class="trace-item complete"><span class="step-num">1</span> System initialized</li>

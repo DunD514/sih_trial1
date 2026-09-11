@@ -38,12 +38,86 @@ class AgentController:
     ):
         self.registry = registry or ModelRegistry()
         self.planner = TaskPlanner(self.registry)
-        
-        # Specialist AI Engines
-        self.change_model = change_model or ChangeDetectionModel()
-        self.vqa = vqa or RemoteSensingVQA()
-        self.grounding = grounding or TextGroundingEngine()
-        self.optical_sar = optical_sar or OpticalSARFusionModel()
+
+        # Specialist AI Engines — loaded lazily to allow server startup without checkpoints
+        self._change_model_override = change_model
+        self._vqa_override = vqa
+        self._grounding_override = grounding
+        self._optical_sar_override = optical_sar
+
+        self._change_model: Optional[ChangeDetectionModel] = None
+        self._vqa: Optional[RemoteSensingVQA] = None
+        self._grounding: Optional[TextGroundingEngine] = None
+        self._optical_sar: Optional[OpticalSARFusionModel] = None
+        self._change_model_error: Optional[str] = None
+        self._vqa_error: Optional[str] = None
+        self._grounding_error: Optional[str] = None
+        self._optical_sar_error: Optional[str] = None
+
+        print("===================================================")
+        print("SatQuery AI Controller initialised (lazy model loading active).")
+        print("Models will be loaded on first inference request.")
+        print("===================================================")
+
+    # ------------------------------------------------------------------
+    # Lazy model accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def change_model(self) -> Optional[ChangeDetectionModel]:
+        if self._change_model_override is not None:
+            return self._change_model_override
+        if self._change_model is None and self._change_model_error is None:
+            try:
+                print("[SatQuery] Loading ChangeDetectionModel...")
+                self._change_model = ChangeDetectionModel()
+                print("[SatQuery] ChangeDetectionModel loaded.")
+            except Exception as e:
+                self._change_model_error = str(e)
+                print(f"[SatQuery] WARNING: ChangeDetectionModel unavailable — {e}")
+        return self._change_model
+
+    @property
+    def vqa(self) -> Optional[RemoteSensingVQA]:
+        if self._vqa_override is not None:
+            return self._vqa_override
+        if self._vqa is None and self._vqa_error is None:
+            try:
+                print("[SatQuery] Loading RemoteSensingVQA...")
+                self._vqa = RemoteSensingVQA()
+                print("[SatQuery] RemoteSensingVQA loaded.")
+            except Exception as e:
+                self._vqa_error = str(e)
+                print(f"[SatQuery] WARNING: RemoteSensingVQA unavailable — {e}")
+        return self._vqa
+
+    @property
+    def grounding(self) -> Optional[TextGroundingEngine]:
+        if self._grounding_override is not None:
+            return self._grounding_override
+        if self._grounding is None and self._grounding_error is None:
+            try:
+                print("[SatQuery] Loading TextGroundingEngine...")
+                self._grounding = TextGroundingEngine()
+                print("[SatQuery] TextGroundingEngine loaded.")
+            except Exception as e:
+                self._grounding_error = str(e)
+                print(f"[SatQuery] WARNING: TextGroundingEngine unavailable — {e}")
+        return self._grounding
+
+    @property
+    def optical_sar(self) -> Optional[OpticalSARFusionModel]:
+        if self._optical_sar_override is not None:
+            return self._optical_sar_override
+        if self._optical_sar is None and self._optical_sar_error is None:
+            try:
+                print("[SatQuery] Loading OpticalSARFusionModel...")
+                self._optical_sar = OpticalSARFusionModel()
+                print("[SatQuery] OpticalSARFusionModel loaded.")
+            except Exception as e:
+                self._optical_sar_error = str(e)
+                print(f"[SatQuery] WARNING: OpticalSARFusionModel unavailable — {e}")
+        return self._optical_sar
 
     def execute(
         self,
@@ -94,21 +168,34 @@ class AgentController:
 
         # 3. Route to specialists
         if determined_task in ["change_analysis", "bi_temporal"]:
+            if self.change_model is None:
+                raise RuntimeError(
+                    f"ChangeDetectionModel is not available: {self._change_model_error}. "
+                    "Please provide a valid 'best_ckpt.pt' checkpoint in the checkpoints/ directory."
+                )
             return self._handle_change_analysis(image_1, image_2, question, state, geo_meta_1, geo_meta_2, plan_info)
 
         elif determined_task in ["optical_sar_fusion", "optical_sar"]:
+            if self.optical_sar is None:
+                raise RuntimeError(f"OpticalSARFusionModel is not available: {self._optical_sar_error}")
             return self._handle_optical_sar(image_1, image_2, question, state, mod_1, mod_2, plan_info)
 
         elif determined_task in ["grounding", "spatial_grounding"]:
+            if self.grounding is None:
+                raise RuntimeError(f"TextGroundingEngine is not available: {self._grounding_error}")
             return self._handle_grounding(image_1, question, state, geo_meta_1, plan_info)
 
         elif determined_task == "captioning":
             caption_prompt = question if question else "Describe this remote sensing scene in detail."
             if "describe" not in caption_prompt.lower():
                 caption_prompt = "Describe this remote sensing scene in detail. " + caption_prompt
+            if self.vqa is None:
+                raise RuntimeError(f"RemoteSensingVQA is not available: {self._vqa_error}")
             return self._handle_vqa(image_1, caption_prompt, state, geo_meta_1, plan_info)
 
         else:  # vqa / scene understanding
+            if self.vqa is None:
+                raise RuntimeError(f"RemoteSensingVQA is not available: {self._vqa_error}")
             return self._handle_vqa(image_1, question or "What is the primary land cover in this image?", state, geo_meta_1, plan_info)
 
     def _handle_change_analysis(
