@@ -1,0 +1,33 @@
+# ==============================================================================
+# SatQuery AI — Production Python Dependencies (Ubuntu AWS EC2)
+# SIH Problem: SIH26167
+# ==============================================================================
+
+# Core Web Microservice & ASGI Server
+fastapi>=0.109.0,<1.0.0
+uvicorn[standard]>=0.27.0,<1.0.0
+gunicorn>=21.2.0,<23.0.0
+pydantic>=2.5.0,<3.0.0
+python-multipart>=0.0.9
+httpx>=0.26.0,<1.0.0
+
+# Scientific Computing & Deep Learning Core
+# (For GPU on Ubuntu EC2: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121)
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0,<3.0.0
+scipy>=1.10.0,<2.0.0
+Pillow>=9.5.0,<12.0.0
+
+# Remote Sensing Model Architectures (ChangeFormer & Specialists)
+timm>=0.6.12
+einops>=0.6.0
+
+# Vision-Language Models & Weights Cache
+transformers>=4.38.0
+accelerate>=0.26.0
+huggingface-hub>=0.20.0
+
+# Local Neural TTS Engine (Kokoro-82M / JARVIS 2.0)
+kokoro-onnx>=0.6.0
+soundfile>=0.12.1

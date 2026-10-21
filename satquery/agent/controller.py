@@ -8,15 +8,12 @@ from typing import Dict, Any, Union, Optional, List
 import numpy as np
 from PIL import Image
 import os
+import threading
 
 from .state import AgentState
 from .registry import ModelRegistry
 from .planner import TaskPlanner
 from .confidence import ConfidenceEngine
-from ..models.change_detection import ChangeDetectionModel
-from ..models.vqa import RemoteSensingVQA
-from ..models.grounding import TextGroundingEngine
-from ..models.optical_sar import OpticalSARFusionModel
 from ..preprocessing.validation import InputValidator
 from ..preprocessing.geotiff import GeoTIFFProcessor
 
@@ -30,10 +27,10 @@ class AgentController:
 
     def __init__(
         self,
-        change_model: Optional[ChangeDetectionModel] = None,
-        vqa: Optional[RemoteSensingVQA] = None,
-        grounding: Optional[TextGroundingEngine] = None,
-        optical_sar: Optional[OpticalSARFusionModel] = None,
+        change_model: Optional[Any] = None,
+        vqa: Optional[Any] = None,
+        grounding: Optional[Any] = None,
+        optical_sar: Optional[Any] = None,
         registry: Optional[ModelRegistry] = None
     ):
         self.registry = registry or ModelRegistry()
@@ -45,14 +42,15 @@ class AgentController:
         self._grounding_override = grounding
         self._optical_sar_override = optical_sar
 
-        self._change_model: Optional[ChangeDetectionModel] = None
-        self._vqa: Optional[RemoteSensingVQA] = None
-        self._grounding: Optional[TextGroundingEngine] = None
-        self._optical_sar: Optional[OpticalSARFusionModel] = None
+        self._change_model: Optional[Any] = None
+        self._vqa: Optional[Any] = None
+        self._grounding: Optional[Any] = None
+        self._optical_sar: Optional[Any] = None
         self._change_model_error: Optional[str] = None
         self._vqa_error: Optional[str] = None
         self._grounding_error: Optional[str] = None
         self._optical_sar_error: Optional[str] = None
+        self._init_lock = threading.Lock()
 
         print("===================================================")
         print("SatQuery AI Controller initialised (lazy model loading active).")
@@ -60,66 +58,93 @@ class AgentController:
         print("===================================================")
 
     # ------------------------------------------------------------------
-    # Lazy model accessors
+    # Lazy model accessors (thread-safe double-checked locking)
     # ------------------------------------------------------------------
 
     @property
-    def change_model(self) -> Optional[ChangeDetectionModel]:
+    def change_model(self) -> Optional[Any]:
         if self._change_model_override is not None:
             return self._change_model_override
         if self._change_model is None and self._change_model_error is None:
-            try:
-                print("[SatQuery] Loading ChangeDetectionModel...")
-                self._change_model = ChangeDetectionModel()
-                print("[SatQuery] ChangeDetectionModel loaded.")
-            except Exception as e:
-                self._change_model_error = str(e)
-                print(f"[SatQuery] WARNING: ChangeDetectionModel unavailable — {e}")
+            with self._init_lock:
+                if self._change_model is None and self._change_model_error is None:
+                    try:
+                        print("[SatQuery] Loading ChangeDetectionModel...")
+                        from ..models.change_detection import ChangeDetectionModel
+                        self._change_model = ChangeDetectionModel()
+                        print("[SatQuery] ChangeDetectionModel loaded.")
+                    except Exception as e:
+                        self._change_model_error = str(e)
+                        print(f"[SatQuery] WARNING: ChangeDetectionModel unavailable — {e}")
         return self._change_model
 
     @property
-    def vqa(self) -> Optional[RemoteSensingVQA]:
+    def vqa(self) -> Optional[Any]:
         if self._vqa_override is not None:
             return self._vqa_override
         if self._vqa is None and self._vqa_error is None:
-            try:
-                print("[SatQuery] Loading RemoteSensingVQA...")
-                self._vqa = RemoteSensingVQA()
-                print("[SatQuery] RemoteSensingVQA loaded.")
-            except Exception as e:
-                self._vqa_error = str(e)
-                print(f"[SatQuery] WARNING: RemoteSensingVQA unavailable — {e}")
+            with self._init_lock:
+                if self._vqa is None and self._vqa_error is None:
+                    try:
+                        print("[SatQuery] Loading RemoteSensingVQA...")
+                        from ..models.vqa import RemoteSensingVQA
+                        self._vqa = RemoteSensingVQA()
+                        print("[SatQuery] RemoteSensingVQA loaded.")
+                    except Exception as e:
+                        self._vqa_error = str(e)
+                        print(f"[SatQuery] WARNING: RemoteSensingVQA unavailable — {e}")
         return self._vqa
 
     @property
-    def grounding(self) -> Optional[TextGroundingEngine]:
+    def grounding(self) -> Optional[Any]:
         if self._grounding_override is not None:
             return self._grounding_override
         if self._grounding is None and self._grounding_error is None:
-            try:
-                print("[SatQuery] Loading TextGroundingEngine...")
-                self._grounding = TextGroundingEngine()
-                print("[SatQuery] TextGroundingEngine loaded.")
-            except Exception as e:
-                self._grounding_error = str(e)
-                print(f"[SatQuery] WARNING: TextGroundingEngine unavailable — {e}")
+            with self._init_lock:
+                if self._grounding is None and self._grounding_error is None:
+                    try:
+                        print("[SatQuery] Loading TextGroundingEngine...")
+                        from ..models.grounding import TextGroundingEngine
+                        self._grounding = TextGroundingEngine()
+                        print("[SatQuery] TextGroundingEngine loaded.")
+                    except Exception as e:
+                        self._grounding_error = str(e)
+                        print(f"[SatQuery] WARNING: TextGroundingEngine unavailable — {e}")
         return self._grounding
 
     @property
-    def optical_sar(self) -> Optional[OpticalSARFusionModel]:
+    def optical_sar(self) -> Optional[Any]:
         if self._optical_sar_override is not None:
             return self._optical_sar_override
         if self._optical_sar is None and self._optical_sar_error is None:
-            try:
-                print("[SatQuery] Loading OpticalSARFusionModel...")
-                self._optical_sar = OpticalSARFusionModel()
-                print("[SatQuery] OpticalSARFusionModel loaded.")
-            except Exception as e:
-                self._optical_sar_error = str(e)
-                print(f"[SatQuery] WARNING: OpticalSARFusionModel unavailable — {e}")
+            with self._init_lock:
+                if self._optical_sar is None and self._optical_sar_error is None:
+                    try:
+                        print("[SatQuery] Loading OpticalSARFusionModel...")
+                        from ..models.optical_sar import OpticalSARFusionModel
+                        self._optical_sar = OpticalSARFusionModel()
+                        print("[SatQuery] OpticalSARFusionModel loaded.")
+                    except Exception as e:
+                        self._optical_sar_error = str(e)
+                        print(f"[SatQuery] WARNING: OpticalSARFusionModel unavailable — {e}")
         return self._optical_sar
 
+    @property
+    def qwen_vision(self) -> Any:
+        """Dedicated Qwen2-VL-2B-Instruct vision context extraction service."""
+        from ..vision.qwen_service import qwen_vision_service
+        return qwen_vision_service
+
+    def extract_visual_context(
+        self,
+        image: Union[str, np.ndarray, Image.Image],
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Extracts structured 18-field visual context using Qwen2-VL."""
+        return self.qwen_vision.analyze_image(image, metadata=metadata)
+
     def execute(
+
         self,
         image_1: Union[str, np.ndarray, Image.Image],
         image_2: Optional[Union[str, np.ndarray, Image.Image]] = None,

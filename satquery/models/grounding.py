@@ -4,15 +4,22 @@ Locates queried objects or terrain features from natural language queries, gener
 bounding boxes, pixel masks, visual overlays, and geographic coordinates.
 """
 
-import os
-os.environ["HF_HOME"] = "D:/ChangeFormer/.hf_cache"
+# HF cache uses default standard cache or current workspace
+
 
 from typing import Dict, Any, Union, Optional, List, Tuple
+from collections import OrderedDict
+import threading
+import os
 import numpy as np
 from PIL import Image
 import cv2
 import torch
-from transformers import OwlViTProcessor, OwlViTForObjectDetection
+import logging
+from transformers import OwlViTProcessor, OwlViTForObjectDetection, OwlViTImageProcessor, CLIPTokenizer
+from huggingface_hub import hf_hub_download
+
+logger = logging.getLogger("satquery.grounding")
 
 
 class TextGroundingEngine:
@@ -20,17 +27,46 @@ class TextGroundingEngine:
     Open-Vocabulary Spatial Grounding Engine for Remote Sensing Imagery.
     Extracts deep multi-scale feature representations to localize text-queried targets
     into bounding boxes [ymin, xmin, ymax, xmax], segmentation contours, and visual overlays.
+    Optimized with thread-safe LRU caching and torch.inference_mode.
     """
 
     def __init__(self, device: Optional[str] = None):
         self.device = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
+        self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._cache_lock = threading.Lock()
+        self._max_cache_size = 64
         
         # Load Pre-Trained OWL-ViT for Open Vocabulary Object Detection
-        self.processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
+        try:
+            self.processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
+        except Exception as exc:
+            logger.info("Direct OwlViTProcessor loading failed (%s); loading components individually...", exc)
+            vocab = hf_hub_download("google/owlvit-base-patch32", "vocab.json")
+            merges = hf_hub_download("google/owlvit-base-patch32", "merges.txt")
+            tokenizer = CLIPTokenizer(vocab_file=vocab, merges_file=merges)
+            image_processor = OwlViTImageProcessor.from_pretrained("google/owlvit-base-patch32")
+            self.processor = OwlViTProcessor(image_processor=image_processor, tokenizer=tokenizer)
+
         self.model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
-        
         self.model.to(self.device)
         self.model.eval()
+
+    @staticmethod
+    def _compute_image_key(img: Union[str, np.ndarray, Image.Image]) -> str:
+        """Fast key computation for image inputs."""
+        if isinstance(img, str):
+            if os.path.isfile(img):
+                try:
+                    mtime = os.path.getmtime(img)
+                    return f"file:{img}:{mtime}"
+                except OSError:
+                    pass
+            return f"path:{img}"
+        elif isinstance(img, Image.Image):
+            return f"pil:{img.size}:{img.mode}:{id(img)}"
+        elif isinstance(img, np.ndarray):
+            return f"np:{img.shape}:{img.dtype}:{id(img)}"
+        return f"obj:{id(img)}"
 
     def _load_image(self, image_input: Union[str, np.ndarray, Image.Image]) -> Tuple[Image.Image, np.ndarray]:
         if isinstance(image_input, str):
@@ -56,17 +92,27 @@ class TextGroundingEngine:
     ) -> Dict[str, Any]:
         """
         Locates target regions from the prompt text, generating bounding boxes and overlay visuals.
+        Accelerated with thread-safe bounded LRU caching and torch.inference_mode.
         """
+        clean_target = target_text.strip()
+        img_key = self._compute_image_key(image_input)
+        cache_key = f"{img_key}::{clean_target.lower()}::{threshold}"
+
+        with self._cache_lock:
+            if cache_key in self._cache:
+                self._cache.move_to_end(cache_key)
+                return dict(self._cache[cache_key])
+
         pil_img, np_img = self._load_image(image_input)
         orig_w, orig_h = pil_img.size
         
         # Query parsing (OWL-ViT expects lists of lists of strings for batched text)
-        texts = [[target_text]]
+        texts = [[clean_target]]
         
         # Preprocess and forward
         inputs = self.processor(text=texts, images=pil_img, return_tensors="pt").to(self.device)
         
-        with torch.no_grad():
+        with torch.inference_mode():
             outputs = self.model(**inputs)
             
         # Target image sizes (height, width) to rescale bounding boxes
@@ -100,20 +146,20 @@ class TextGroundingEngine:
             cv2.rectangle(binary_mask, (xmin, ymin), (xmax, ymax), 255, -1)
             
         # Generate Visual Grounding Overlay
-        overlay_np = self._render_grounding_overlay(np_img, bboxes, box_scores, target_text)
+        overlay_np = self._render_grounding_overlay(np_img, bboxes, box_scores, clean_target)
         
         # Average grounding confidence
         overall_conf = float(np.mean(box_scores)) if box_scores else 0.0
         
         explanation = (
             f"Successfully grounded {len(bboxes)} candidate region{'s' if len(bboxes) != 1 else ''} "
-            f"matching target '{target_text}' (mean confidence: {overall_conf * 100:.1f}%)."
+            f"matching target '{clean_target}' (mean confidence: {overall_conf * 100:.1f}%)."
         )
         
-        return {
+        res = {
             "status": "EXECUTED",
             "task": "grounding",
-            "target_text": target_text,
+            "target_text": clean_target,
             "explanation": explanation,
             "bboxes": bboxes,
             "box_confidences": box_scores,
@@ -124,6 +170,13 @@ class TextGroundingEngine:
             "visualization": overlay_np,
             "model_name": "google/owlvit-base-patch32"
         }
+
+        with self._cache_lock:
+            if len(self._cache) >= self._max_cache_size:
+                self._cache.popitem(last=False)
+            self._cache[cache_key] = res
+
+        return res
 
     def _render_grounding_overlay(
         self,

@@ -1,8 +1,105 @@
-*.pyc
-*.DS_Store
-./sha256
-./sha256.pub
-.venv/
-.hf_cache/
+# ==============================================================================
+# SatQuery AI — Git Ignore Configuration
+# ==============================================================================
+
+# Python Bytecode & Runtime Artifacts
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables, Secrets & Private Keys (STRICT: Never commit credentials)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.id_rsa
+*.id_rsa.pub
+*.pub
+sha256
+sha256.pub
+secrets/
+credentials/
+aws_credentials
+*.cer
+*.crt
+*.pfx
+
+# Large Model Checkpoints & Pretrained Weights
 checkpoints/
+Qwen2-VL-2B-Instruct/
+models_cache/
+.hf_cache/
+huggingface/
+*.pth
+*.pt
+*.bin
+*.onnx
+*.safetensors
+*.ckpt
+*.h5
+*.tflite
+*.pb
+
+# Temporary Uploads, Processing Outputs & Scratch
+custom_input/uploads/
+custom_output/
+outputs/
+scratch/
+temp/
+tmp/
+*.tmp
+
+# Logging & Diagnostic Artifacts
+*.log
+logs/
+*.out
+
+# Unit Test, Coverage & Linter Caches
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.ruff_cache/
+.mypy_cache/
+
+# OS Specific Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# IDE & Editor Configurations
+.idea/
+.vscode/
+*.swp
+*.swo

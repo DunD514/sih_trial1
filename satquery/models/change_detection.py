@@ -12,6 +12,10 @@ import cv2
 import torch
 import torchvision.transforms.functional as TF
 
+from collections import OrderedDict
+import threading
+import hashlib
+
 from models.networks import define_G
 
 
@@ -73,7 +77,27 @@ class ChangeDetectionModel:
 
         self.net_G = None
         self.loaded_meta = {}
+        self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._cache_lock = threading.Lock()
+        self._max_cache_size = 32
         self._initialize_model()
+
+    @staticmethod
+    def _compute_image_key(img: Union[str, np.ndarray, Image.Image]) -> str:
+        """Fast key computation for image inputs without deep hash overhead."""
+        if isinstance(img, str):
+            if os.path.isfile(img):
+                try:
+                    mtime = os.path.getmtime(img)
+                    return f"file:{img}:{mtime}"
+                except OSError:
+                    pass
+            return f"path:{img}"
+        elif isinstance(img, Image.Image):
+            return f"pil:{img.size}:{img.mode}:{id(img)}"
+        elif isinstance(img, np.ndarray):
+            return f"np:{img.shape}:{img.dtype}:{id(img)}"
+        return f"obj:{id(img)}"
 
     def _resolve_checkpoint_path(
         self,
@@ -232,21 +256,19 @@ class ChangeDetectionModel:
     ) -> Dict[str, Any]:
         """
         Performs bi-temporal change detection on image pair T1 and T2.
-
-        Returns structured dictionary:
-        {
-            "change_mask": np.ndarray (binary uint8: 0 or 255),
-            "change_percentage": float,
-            "confidence": float,
-            "raw_probabilities": np.ndarray,
-            "overlay_t1": np.ndarray,
-            "overlay_t2": np.ndarray,
-            "bboxes": List[Dict],
-            "changed_pixels": int,
-            "total_pixels": int,
-            "metadata": Dict
-        }
+        Accelerated with thread-safe bounded LRU caching and torch.inference_mode.
         """
+        # Cache lookup
+        k1 = self._compute_image_key(image_t1)
+        k2 = self._compute_image_key(image_t2)
+        cache_key = f"{k1}::{k2}::{resize_to_original}::{change_threshold}"
+
+        with self._cache_lock:
+            if cache_key in self._cache:
+                self._cache.move_to_end(cache_key)
+                cached = self._cache[cache_key]
+                return dict(cached)
+
         # Preprocess both images
         tensor_t1, orig_size_t1 = self._preprocess_image(image_t1)
         tensor_t2, orig_size_t2 = self._preprocess_image(image_t2)
@@ -254,8 +276,8 @@ class ChangeDetectionModel:
         tensor_t1 = tensor_t1.to(self.device)
         tensor_t2 = tensor_t2.to(self.device)
 
-        # Inference
-        with torch.no_grad():
+        # Inference with torch.inference_mode
+        with torch.inference_mode():
             outputs = self.net_G(tensor_t1, tensor_t2)
             # ChangeFormer outputs multi-scale list or single logits tensor
             logits = outputs[-1] if isinstance(outputs, (list, tuple)) else outputs
@@ -308,7 +330,7 @@ class ChangeDetectionModel:
         diff_colored = cv2.applyColorMap(diff_heat, cv2.COLORMAP_JET)
         diff_colored = cv2.cvtColor(diff_colored, cv2.COLOR_BGR2RGB)
 
-        return {
+        result = {
             "change_mask": change_mask_255,
             "change_percentage": change_percentage,
             "confidence": round(mean_confidence, 4),
@@ -328,4 +350,11 @@ class ChangeDetectionModel:
                 "num_change_clusters": len(bboxes)
             }
         }
+
+        with self._cache_lock:
+            if len(self._cache) >= self._max_cache_size:
+                self._cache.popitem(last=False)
+            self._cache[cache_key] = result
+
+        return result
 

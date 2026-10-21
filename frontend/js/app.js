@@ -55,14 +55,105 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchSamples();
 
   // Tab switching
+  window.switchView = function(viewName) {
+    if (!viewName) return;
+    let tabId = viewName;
+    if (viewName === "difference-heatmap" || viewName === "heatmap" || viewName === "diff_map") tabId = "diff-map";
+    if (viewName === "change-mask" || viewName === "change_mask" || viewName === "mask") tabId = "change-mask";
+    if (viewName === "side-by-side" || viewName === "side_by_side") tabId = "side-by-side";
+    if (viewName === "interactive-overlay" || viewName === "overlay" || viewName === "visual-overlay") tabId = "interactive-overlay";
+
+    tabBtns.forEach(b => b.classList.remove("active"));
+    tabContents.forEach(c => c.classList.remove("active"));
+    const btn = document.querySelector(`[data-tab="${tabId}"]`);
+    if (btn) btn.classList.add("active");
+    const targetTab = document.getElementById(`tab-${tabId}`);
+    if (targetTab) targetTab.classList.add("active");
+
+    const legend = document.getElementById("canvas-legend");
+    if (legend) {
+      legend.style.display = (tabId === "diff-map" || tabId === "change-mask") ? "flex" : "none";
+    }
+  };
+
+  window.handleJarvisUIAction = function(action) {
+    if (!action) return;
+    if (action.type === "SELECT_VIEW" && action.view) {
+      window.switchView(action.view);
+    }
+  };
+
   tabBtns.forEach(btn => {
     btn.addEventListener("click", () => {
-      tabBtns.forEach(b => b.classList.remove("active"));
-      tabContents.forEach(c => c.classList.remove("active"));
-      btn.classList.add("active");
-      const targetTab = document.getElementById(`tab-${btn.dataset.tab}`);
-      if (targetTab) targetTab.classList.add("active");
+      window.switchView(btn.dataset.tab);
     });
+  });
+
+  // Right Context Panel Tabs Switching
+  const panelTabs = document.querySelectorAll(".panel-tab-btn");
+  const panelSections = document.querySelectorAll(".panel-section");
+  panelTabs.forEach(btn => {
+    btn.addEventListener("click", () => {
+      panelTabs.forEach(b => b.classList.remove("active"));
+      panelSections.forEach(s => s.style.display = "none");
+      btn.classList.add("active");
+      const target = document.getElementById(btn.dataset.target);
+      if (target) target.style.display = "flex";
+    });
+  });
+
+  // Top Minimal Navigation Links
+  document.getElementById("nav-btn-explore")?.addEventListener("click", (e) => {
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    e.target.classList.add("active");
+    window.switchView("interactive-overlay");
+    userPrompt.value = "Describe this satellite scene.";
+    userPrompt.focus();
+  });
+
+  document.getElementById("nav-btn-change")?.addEventListener("click", (e) => {
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    e.target.classList.add("active");
+    window.switchView("change-mask");
+    userPrompt.value = "What changed between these two images?";
+    userPrompt.focus();
+  });
+
+  document.getElementById("nav-btn-grounding")?.addEventListener("click", (e) => {
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    e.target.classList.add("active");
+    window.switchView("interactive-overlay");
+    if (taskSelect) taskSelect.value = "grounding";
+    userPrompt.value = "Where is the built-up region? Locate structures.";
+    userPrompt.focus();
+  });
+
+  document.getElementById("nav-btn-reports")?.addEventListener("click", (e) => {
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    e.target.classList.add("active");
+    document.getElementById("tab-btn-intel")?.click();
+    btnDownloadMd?.scrollIntoView({ behavior: "smooth" });
+  });
+
+  // Unified Query Execution Handler
+  function triggerQuery() {
+    if (window._jarvis && window._jarvis.isOn) {
+      const q = userPrompt.value.trim();
+      if (!q) return;
+      window._jarvis._interruptSpeech();
+      window._jarvis._addMsg("user", q);
+      window._jarvis.handleQuery(q);
+      userPrompt.value = "";
+    } else {
+      executeAnalysis();
+    }
+  }
+
+  userPrompt.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      triggerQuery();
+    }
   });
 
   // Opacity Slider
@@ -74,6 +165,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".chip-btn").forEach(chip => {
     chip.addEventListener("click", () => {
       userPrompt.value = chip.dataset.query;
+      userPrompt.focus();
     });
   });
 
@@ -152,7 +244,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Analyze Button
-  btnAnalyze.addEventListener("click", executeAnalysis);
+  btnAnalyze.addEventListener("click", triggerQuery);
 
   // Download Markdown Report
   btnDownloadMd.addEventListener("click", () => {
@@ -264,6 +356,17 @@ document.addEventListener("DOMContentLoaded", () => {
           optGroup.appendChild(opt);
         });
         sampleSelect.appendChild(optGroup);
+      }
+
+      // Auto-load first benchmark sample if no imagery loaded yet
+      if (!image1Path && !image1Data) {
+        setTimeout(() => {
+          const firstOpt = sampleSelect.querySelector("optgroup option");
+          if (firstOpt) {
+            sampleSelect.value = firstOpt.value;
+            sampleSelect.dispatchEvent(new Event("change"));
+          }
+        }, 120);
       }
     } catch (err) {
       console.warn("Could not fetch pre-loaded samples:", err);
@@ -411,11 +514,37 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // 6. Report Export Actions
+    // 6. Qwen2-VL Visual Context
+    const vcCard = document.getElementById("visual-context-card");
+    if (vcCard) {
+      if (result.visual_context) {
+        const vc = result.visual_context;
+        const setTxt = (id, val) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = Array.isArray(val) ? (val.join(", ") || "None") : (val || "None");
+        };
+        setTxt("vc-image-type", vc.image_type);
+        setTxt("vc-summary", vc.summary);
+        setTxt("vc-land-cover", vc.land_cover);
+        setTxt("vc-infrastructure", vc.infrastructure);
+        setTxt("vc-terrain-water", [
+          ...(Array.isArray(vc.terrain) ? vc.terrain : [vc.terrain]).filter(Boolean),
+          ...(Array.isArray(vc.water_features) ? vc.water_features : [vc.water_features]).filter(x => x && x !== "none")
+        ]);
+        setTxt("vc-conditions", vc.notable_conditions);
+        setTxt("vc-uncertainties", vc.uncertainties);
+        vcCard.style.display = "block";
+      } else {
+        vcCard.style.display = "none";
+      }
+    }
+
+    // 7. Report Export Actions
     btnDownloadMd.disabled = false;
     if (btnDownloadGeoJson) {
       btnDownloadGeoJson.disabled = !result.geojson;
     }
+
   }
 
   // ============================================================================
@@ -487,6 +616,9 @@ document.addEventListener("DOMContentLoaded", () => {
         whyResultMeaning: document.getElementById("why-result-meaning"),
         whyResultConf: document.getElementById("why-result-confidence"),
         whyResultLimits: document.getElementById("why-result-limitations"),
+        evidenceCard:  document.getElementById("evidence-panel-card"),
+        evidenceItems: document.getElementById("evidence-items-list"),
+        provenanceBadges: document.getElementById("provenance-badges-list"),
         whyMattersCard: document.getElementById("why-matters-card"),
         whyMattersText: document.getElementById("why-matters-text"),
         recommendedCard: document.getElementById("recommended-next-card"),
@@ -682,12 +814,13 @@ document.addEventListener("DOMContentLoaded", () => {
       this._dom.label.textContent = "\u25CF ONLINE";
       this._dom.bar.classList.add("visible");
       document.body.classList.add("jarvis-active");
+      if (this._dom.conv) this._dom.conv.style.display = "flex";
       if (this._dom.statusBadge) {
         this._dom.statusBadge.textContent = "JARVIS \u25CF ONLINE";
         this._dom.statusBadge.classList.add("badge-agent-jarvis");
       }
       this._setVoiceState("IDLE");
-      this._dom.input.focus();
+      userPrompt.focus();
     }
 
     _disable() {
@@ -698,6 +831,7 @@ document.addEventListener("DOMContentLoaded", () => {
       this._dom.label.textContent = "OFF";
       this._dom.bar.classList.remove("visible");
       document.body.classList.remove("jarvis-active");
+      if (this._dom.conv) this._dom.conv.style.display = "none";
       if (this._dom.statusBadge) {
         this._dom.statusBadge.textContent = "Agent Orchestrator Active";
         this._dom.statusBadge.classList.remove("badge-agent-jarvis");
@@ -712,10 +846,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     _submitQuery() {
-      const q = this._dom.input.value.trim();
+      const q = this._dom.input.value.trim() || userPrompt.value.trim();
       if (!q) return;
       this._interruptSpeech();
       this._dom.input.value = "";
+      userPrompt.value = "";
       this._addMsg("user", q);
       this.handleQuery(q);
     }
@@ -759,10 +894,11 @@ document.addEventListener("DOMContentLoaded", () => {
         this.ctx.lastResultId = result.task_id;
         this.ctx.lastResult   = result;
         this.ctx.chatHistory.push({ role: "user", content: query });
-        this.ctx.chatHistory.push({ role: "assistant", content: result.answer });
+        const ansText = result.response || result.answer || "Done.";
+        this.ctx.chatHistory.push({ role: "assistant", content: ansText });
 
         // Show answer in conversation
-        this._addMsg("jarvis", result.answer);
+        this._addMsg("jarvis", ansText);
 
         // Apply specialist result to main SatQuery UI
         if (result.evidence && Object.keys(result.evidence).length > 0) {
@@ -770,11 +906,19 @@ document.addEventListener("DOMContentLoaded", () => {
           updateUIWithResults(result.evidence);
         }
 
+        // Direct structured UI Action handler
+        if (result.ui_action && window.handleJarvisUIAction) {
+          window.handleJarvisUIAction(result.ui_action);
+        }
+
         // Execute validated UI actions
         await this._executeActions(result.ui_actions || []);
 
         // Show JARVIS 2.0 Analyst Cards
         if (result.provenance) this._showProvenance(result.provenance);
+        if (result.evidence && Object.keys(result.evidence).length > 0) {
+          this._showEvidencePanel(result.evidence);
+        }
         if (result.why_this_result && Object.keys(result.why_this_result).length > 0) {
           this._showWhyThisResult(result.why_this_result);
         }
@@ -880,6 +1024,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async _runAction(act) {
+      try {
+        fetch("/api/v1/jarvis/action_ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: act.action, status: "success", timestamp: Date.now() })
+        }).catch(() => {});
+      } catch (e) {}
+
       switch (act.action) {
         case "navigate_tab": {
           const tabName = act.tab || "interactive-overlay";
@@ -901,6 +1053,7 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
 
         case "show_diff_map":
+        case "show_heatmap":
           document.querySelector('[data-tab="diff-map"]')?.click();
           break;
 
@@ -929,21 +1082,26 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         case "open_evidence":
+        case "show_evidence":
         case "show_why_this_result":
           if (this._dom.whyResultCard) this._dom.whyResultCard.style.display = "block";
+          if (this._dom.evidenceCard) this._dom.evidenceCard.style.display = "block";
           break;
 
         case "open_impact":
+        case "show_impact":
         case "show_why_this_matters":
           if (this._dom.whyMattersCard) this._dom.whyMattersCard.classList.add("visible");
           break;
 
         case "open_summary":
+        case "show_summary":
         case "show_executive_summary":
           if (this._dom.summaryCard) this._dom.summaryCard.classList.add("visible");
           break;
 
         case "open_trace":
+        case "show_trace":
           if (this._dom.traceCard) this._dom.traceCard.classList.add("visible");
           break;
 
@@ -1006,7 +1164,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const label = document.createElement("div");
         label.className = "jarvis-cluster-label";
-        label.textContent = `Cluster ${idx + 1}`;
+        label.textContent = `Region ${idx + 1}`;
         hl.appendChild(label);
 
         const bboxLayer = document.getElementById("bbox-overlay-layer");
@@ -1029,6 +1187,33 @@ document.addEventListener("DOMContentLoaded", () => {
       if (this._dom.whyResultMeaning) this._dom.whyResultMeaning.textContent = data.output_meaning || "\u2014";
       if (this._dom.whyResultConf) this._dom.whyResultConf.textContent = data.confidence_type || "\u2014";
       if (this._dom.whyResultLimits) this._dom.whyResultLimits.textContent = data.limitations || "\u2014";
+    }
+
+    _showEvidencePanel(ev) {
+      if (!this._dom.evidenceCard) return;
+      this._dom.evidenceCard.style.display = "block";
+      if (this._dom.evidenceItems) {
+        const items = [];
+        if (ev.change_percentage !== undefined) {
+          items.push(`&#10003; Detected ${ev.change_percentage.toFixed(2)}% spatial difference across ${ev.bboxes ? ev.bboxes.length : 0} regions`);
+        }
+        if (ev.confidence !== undefined && ev.confidence !== null) {
+          items.push(`&#10003; Model confidence: ${(ev.confidence * 100).toFixed(1)}% (${ev.confidence_source || 'Posterior Margin'})`);
+        }
+        if (ev.num_regions !== undefined) {
+          items.push(`&#10003; OWL-ViT localized ${ev.num_regions} candidate bounding boxes`);
+        }
+        if (ev.optical_evidence) {
+          items.push(`&#10003; Optical surface variance confirmed`);
+        }
+        if (ev.sar_evidence) {
+          items.push(`&#10003; SAR radar backscatter variance registered`);
+        }
+        if (!items.length) {
+          items.push("&#10003; Optical sensor input active");
+        }
+        this._dom.evidenceItems.innerHTML = items.map(it => `<li>${it}</li>`).join("");
+      }
     }
 
     _showWhyThisMatters(text) {

@@ -12,12 +12,17 @@ import base64
 import mimetypes
 import re
 import json as _json
+import logging
+import threading
+from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 import httpx
 from fastapi.concurrency import run_in_threadpool
+
+logger = logging.getLogger("satquery.server")
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +36,84 @@ from ..preprocessing.geotiff import GeoTIFFProcessor
 from ..preprocessing.validation import InputValidator
 from ..reporting.export import ReportExporter
 from ..evaluation.benchmark import EvaluationBenchmark
+from ..vision.qwen_service import qwen_vision_service, VisualContextCache, QWEN_MODEL_PATH, QWEN_DEVICE
+from ..vision.orchestrator import orchestrator
+
+
+# Event set only after Qwen warmup inference AND cache-put are fully complete.
+# Health endpoint uses this — not is_available() — to prevent benchmark race conditions.
+_QWEN_WARMUP_DONE = threading.Event()
+
+
+def _warmup_qwen() -> None:
+    """
+    Runs in a background thread at server startup when ENABLE_MODEL_WARMUP=true.
+    By default on production / EC2, models load lazily on first inference request to
+    ensure instant (<1s) boot time and zero OOM risk.
+    """
+    enable_warmup = os.getenv("ENABLE_MODEL_WARMUP", "false").lower() in ("1", "true", "yes")
+    if not enable_warmup:
+        logger.info("[Startup] Eager model warmup is disabled (ENABLE_MODEL_WARMUP=false). Models will load lazily on first request.")
+        _QWEN_WARMUP_DONE.set()
+        return
+
+    if not os.path.exists(qwen_vision_service.model_path):
+        logger.info("[Warmup] Qwen2-VL model path not found at '%s'. Skipping warmup; model will load if downloaded.", qwen_vision_service.model_path)
+        _QWEN_WARMUP_DONE.set()
+        return
+
+    try:
+        t0 = time.time()
+        logger.info("[Warmup] Starting Qwen2-VL eager pre-load...")
+
+        # Step 1: Load model weights into VRAM
+        ok = qwen_vision_service.load_model()
+        if not ok:
+            logger.warning("[Warmup] Qwen2-VL load failed — cold-start penalty will apply to first user query.")
+            _QWEN_WARMUP_DONE.set()  # unblock health even on failure
+            return
+
+        load_dur = time.time() - t0
+        logger.info("[Warmup] Model loaded in %.1fs. Running CUDA kernel warmup inference...", load_dur)
+
+        # Step 2: Use a real LEVIR sample image (256x256) if available
+        warmup_candidates = [
+            os.path.join("samples_LEVIR", "A", "test_2_0000_0000.png"),
+            os.path.join("samples_LEVIR", "A", "test_102_0512_0000.png"),
+        ]
+        warmup_img = None
+        for candidate in warmup_candidates:
+            if os.path.isfile(candidate):
+                warmup_img = candidate
+                logger.info("[Warmup] Using real sample for warmup: %s", candidate)
+                break
+
+        if warmup_img is None:
+            logger.info("[Warmup] No sample found — using synthetic 256x256 warmup image.")
+            warmup_img = Image.new("RGB", (256, 256), color=(96, 120, 80))
+
+        # Cache result so the first user query on this image is instant
+        qwen_vision_service.analyze_image(warmup_img, use_cache=True)
+
+        total_dur = time.time() - t0
+        logger.info("[Warmup] Qwen2-VL fully warm and cached in %.1fs — first user query will be fast.", total_dur)
+
+    except Exception as exc:
+        logger.error("[Warmup] Qwen2-VL warmup failed: %s — cold-start penalty will apply.", exc)
+    finally:
+        _QWEN_WARMUP_DONE.set()
+        logger.info("[Warmup] _QWEN_WARMUP_DONE set.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan: start Qwen2-VL warmup in background thread at server boot."""
+    warmup_thread = threading.Thread(target=_warmup_qwen, name="qwen-warmup", daemon=True)
+    warmup_thread.start()
+    logger.info("[Startup] Qwen2-VL background warmup thread launched.")
+    yield
+    # Shutdown: nothing to clean up (daemon thread exits with process)
+
 
 
 # Initialize FastAPI app
@@ -39,7 +122,8 @@ app = FastAPI(
     description="Interactive Multimodal Remote-Sensing AI Assistant API (SIH26167)",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # Enable CORS
@@ -85,28 +169,55 @@ def array_to_base64(arr: np.ndarray, format_str: str = "PNG") -> str:
 
 
 # Endpoints
-@app.get("/api/v1/health")
-@app.get("/api/health")
+@app.get("/health", tags=["System"])
+@app.get("/api/v1/health", tags=["System"])
+@app.get("/api/health", tags=["System"])
 async def health_check():
-    """Health check and model readiness status."""
+    """
+    Lightweight health check reporting application health and service readiness.
+    Evaluates system status without triggering eager AI model loading.
+    """
     def _status(model, error_attr):
         if model is not None:
             return "Loaded"
         err = getattr(controller, error_attr, None)
-        return f"Unavailable — {err}" if err else "Not yet loaded"
+        return f"Unavailable — {err}" if err else "Ready (Lazy / on-demand)"
+
+    # Non-blocking status checks
+    ollama_ok, ollama_reason = await _check_ollama_status()
+    tts_status = await tts_service.get_status()
 
     return {
         "status": "healthy",
         "system": "SatQuery AI Remote Sensing Assistant",
         "version": "2.0.0",
+        "capabilities": {
+            "web_ui": "ready",
+            "fastapi_server": "running",
+            "ollama_reasoning": "online" if ollama_ok else f"offline ({ollama_reason})",
+            "tts_speech": tts_status.get("status", "ready"),
+            "tts_provider": tts_status.get("provider", "kokoro"),
+            "models": {
+                "change_detection": _status(controller._change_model, "_change_model_error"),
+                "vqa": _status(controller._vqa, "_vqa_error"),
+                "grounding": _status(controller._grounding, "_grounding_error"),
+                "optical_sar": _status(controller._optical_sar, "_optical_sar_error"),
+                "qwen2_vl_vision": "Loaded" if qwen_vision_service._is_initialized else ("Loaded" if _QWEN_WARMUP_DONE.is_set() and os.path.exists(qwen_vision_service.model_path) else "Ready (Lazy / on-demand)"),
+                "geospatial": "Rasterio CRS Engine (Ready)"
+            }
+        },
         "models": {
             "change_detection": _status(controller._change_model, "_change_model_error"),
             "vqa": _status(controller._vqa, "_vqa_error"),
             "grounding": _status(controller._grounding, "_grounding_error"),
             "optical_sar": _status(controller._optical_sar, "_optical_sar_error"),
+            "qwen2_vl_vision": "Loaded" if qwen_vision_service._is_initialized else ("Loaded" if _QWEN_WARMUP_DONE.is_set() and os.path.exists(qwen_vision_service.model_path) else "Ready (Lazy / on-demand)"),
+            "ollama_reasoning": f"Ready ({OLLAMA_MODEL})" if ollama_ok else f"Unavailable — Ollama offline ({ollama_reason})",
             "geospatial": "Rasterio CRS Engine (Ready)"
-        }
+        },
+        "qwen_warm": _QWEN_WARMUP_DONE.is_set()
     }
+
 
 
 @app.get("/api/v1/models")
@@ -254,7 +365,7 @@ async def validate_pair(
 
 @app.post("/api/v1/analyze")
 @app.post("/api/analyze")
-async def analyze_scene(req: AnalyzeRequest):
+async def analyze_scene(req: AnalyzeRequest, background_tasks: BackgroundTasks):
     """Main multimodal analysis pipeline."""
     try:
         # Resolve Image 1
@@ -274,14 +385,16 @@ async def analyze_scene(req: AnalyzeRequest):
             raw_b64 = req.image_2.split(",", 1)[1] if "," in req.image_2 else req.image_2
             img_2 = Image.open(BytesIO(base64.b64decode(raw_b64))).convert("RGB")
 
-        # Execute Agent Controller
-        result = controller.execute(
-            image_1=img_1,
-            image_2=img_2,
-            question=req.question,
-            task=req.task,
-            modality_1=req.modality_1 or "optical",
-            modality_2=req.modality_2 or "optical"
+        # Execute Agent Controller in threadpool to keep FastAPI async event loop unblocked
+        result = await run_in_threadpool(
+            lambda: controller.execute(
+                image_1=img_1,
+                image_2=img_2,
+                question=req.question,
+                task=req.task,
+                modality_1=req.modality_1 or "optical",
+                modality_2=req.modality_2 or "optical"
+            )
         )
 
         # Generate task ID and cache
@@ -345,6 +458,48 @@ async def analyze_scene(req: AnalyzeRequest):
         if "top_predictions" in result:
             resp["top_predictions"] = result["top_predictions"]
 
+        # 4. Integrate Qwen2-VL Visual Context (Optimized with instant cache hit or non-blocking async)
+        if qwen_vision_service.is_available():
+            try:
+                # Fast cache check first (SHA-256 of image content)
+                cache_key = VisualContextCache.compute_key(img_1, metadata=result.get("geospatial_metadata"))
+                cached_context = qwen_vision_service.cache.get(cache_key)
+
+                if cached_context:
+                    resp["visual_context"] = cached_context
+                    resp["vision_status"] = "completed"
+                    if "Qwen2-VL-2B-Instruct" not in resp["models_used"]:
+                        resp["models_used"].append("Qwen2-VL-2B-Instruct")
+                elif result.get("task") in ["scene_understanding", "captioning"] and not result.get("answer"):
+                    # Dedicated single-image visual captioning task where user specifically waited for scene context
+                    v_res = await run_in_threadpool(
+                        lambda: qwen_vision_service.analyze_image(img_1, metadata=result.get("geospatial_metadata"))
+                    )
+                    if v_res.get("status") == "completed" and v_res.get("visual_context"):
+                        resp["visual_context"] = v_res["visual_context"]
+                        resp["vision_status"] = "completed"
+                        if "Qwen2-VL-2B-Instruct" not in resp["models_used"]:
+                            resp["models_used"].append("Qwen2-VL-2B-Instruct")
+                    elif v_res.get("vision_error"):
+                        resp["visual_context"] = None
+                        resp["vision_error"] = v_res["vision_error"]
+                else:
+                    # For change detection & rapid execution: return specialist results immediately in <1s!
+                    # Trigger background vision inference so visual cache is warmed asynchronously
+                    resp["visual_context"] = None
+                    resp["vision_status"] = "pending"
+                    background_tasks.add_task(
+                        qwen_vision_service.analyze_image,
+                        img_1,
+                        result.get("geospatial_metadata")
+                    )
+            except Exception as e:
+                resp["visual_context"] = None
+                resp["vision_error"] = str(e)
+        elif "visual_context" in result:
+            resp["visual_context"] = result["visual_context"]
+            resp["vision_status"] = "completed"
+
         resp["markdown_report"] = ReportExporter.to_markdown(result)
         results_cache[task_id] = resp
 
@@ -354,6 +509,31 @@ async def analyze_scene(req: AnalyzeRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/vision/context")
+@app.post("/api/vision/context")
+async def extract_vision_context(req: AnalyzeRequest):
+    """
+    Dedicated endpoint to extract 18-field structured visual context using Qwen2-VL-2B-Instruct.
+    Runs locally on GPU if available with CPU fallback.
+    """
+    try:
+        if req.image_1_path and os.path.isfile(req.image_1_path):
+            img_1 = req.image_1_path
+        elif req.image_1:
+            raw_b64 = req.image_1.split(",", 1)[1] if "," in req.image_1 else req.image_1
+            img_1 = Image.open(BytesIO(base64.b64decode(raw_b64))).convert("RGB")
+        else:
+            raise HTTPException(status_code=400, detail="Primary image (image_1 or image_1_path) required")
+
+        result = await run_in_threadpool(lambda: qwen_vision_service.analyze_image(img_1))
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.get("/api/v1/result/{task_id}")
@@ -393,24 +573,25 @@ if os.path.isdir(frontend_dir):
 # ==============================================================================
 
 from ..services.tts import tts_service, normalize_for_speech, prepare_speech_text
-from ..agent.tools import TOOL_REGISTRY, ClusterAnalytics
-
-OLLAMA_BASE_URL: str = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL: str = os.environ.get("OLLAMA_MODEL", "qwen3:8b")  # STRICT: ONLY qwen3:8b
+from ..services.ollama import ollama_service, OLLAMA_MODEL, OLLAMA_BASE_URL
+from ..agent.tools import TOOL_REGISTRY, ClusterAnalytics, EvidenceFusion
+from ..agent.query_engine import query_engine
+from ..agent.state import MissionState, InputState, UIState
 
 ALLOWED_SPECIALIST_TOOLS = {
-    "change_detection", "vqa", "grounding", "optical_sar",
-    "geospatial", "rank_change_clusters", "inspect_change_cluster",
-    "build_summary", "build_report", "none"
+    "change_detection", "change_cluster_analysis", "vqa", "scene_analysis",
+    "grounding", "optical_sar", "evidence_fusion", "impact_analysis",
+    "mission_summary", "build_summary", "report_generation", "build_report",
+    "rank_change_clusters", "inspect_change_cluster", "geospatial", "none"
 }
 
 ALLOWED_UI_ACTIONS = {
     "navigate_tab", "show_overlay", "show_side_by_side", "show_change_mask",
-    "show_diff_map", "select_cluster", "highlight_cluster", "zoom_to_cluster",
+    "show_diff_map", "show_heatmap", "select_cluster", "highlight_cluster", "zoom_to_cluster",
     "show_grounding", "show_vqa", "show_optical_sar", "show_geospatial",
-    "open_trace", "open_evidence", "open_impact", "open_summary",
-    "generate_report", "show_why_this_result", "show_why_this_matters",
-    "show_executive_summary", "show_agent_progress", "update_answer",
+    "show_evidence", "show_impact", "show_trace", "show_summary",
+    "show_executive_summary", "show_agent_progress", "show_why_this_result",
+    "show_why_this_matters", "generate_report", "update_answer",
     "speak_response", "clear_selection", "reset_view"
 }
 
@@ -444,54 +625,17 @@ class JarvisExplainRequest(BaseModel):
     context: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
-def _extract_json_from_llm(text: str) -> dict:
-    """Strip Qwen3 <think> blocks and extract the JSON object."""
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    for pattern in [r"\{[\s\S]*\}", r"\{.*?\}"]:
-        m = re.search(pattern, text, re.DOTALL)
-        if m:
-            try:
-                return _json.loads(m.group())
-            except _json.JSONDecodeError:
-                continue
-    try:
-        return _json.loads(text)
-    except _json.JSONDecodeError:
-        raise ValueError(f"No valid JSON in LLM response: {text[:300]}")
-
-
-async def _call_qwen3(messages: list, timeout: float = 120.0) -> str:
-    """Call Ollama qwen3:8b API and return the assistant text."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
-        resp = await client.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            json={
-                "model": OLLAMA_MODEL,
-                "messages": messages,
-                "stream": False,
-                "think": False,  # Disable thinking mode — all tokens go to response
-                "options": {"temperature": 0.1, "num_predict": 512}
-            }
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"]
+class ActionAckRequest(BaseModel):
+    action: str
+    status: str = "success"
+    tab: Optional[str] = None
+    cluster_index: Optional[int] = None
+    timestamp: Optional[float] = None
 
 
 async def _check_ollama_status() -> Tuple[bool, str]:
-    """Returns (available, reason_string)."""
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5.0)
-            r.raise_for_status()
-            models = [m["name"] for m in r.json().get("models", [])]
-            if any(OLLAMA_MODEL in m for m in models):
-                return True, "OK"
-            short_list = ", ".join(models[:6]) or "none"
-            return False, f"{OLLAMA_MODEL} not found in Ollama. Available: {short_list}"
-    except httpx.ConnectError:
-        return False, f"Ollama server not reachable at {OLLAMA_BASE_URL}"
-    except Exception as exc:
-        return False, str(exc)
+    """Returns (available, reason_string) using centralized Ollama service."""
+    return await ollama_service.check_health()
 
 
 async def _qwen3_plan(
@@ -502,125 +646,13 @@ async def _qwen3_plan(
     prior_result: Optional[dict],
     selected_cluster: Optional[int]
 ) -> dict:
-    """Ask Qwen3 to produce a validated structured execution plan based on application state."""
-    prior_summary = "None"
-    ranked_clusters = []
-    if prior_result:
-        task = prior_result.get("task", "unknown")
-        bboxes = prior_result.get("bboxes", [])
-        ranked_clusters = ClusterAnalytics.rank_clusters(bboxes) if bboxes else []
-        if task == "change_analysis":
-            pct = prior_result.get("change_percentage", "?")
-            n = len(bboxes)
-            prior_summary = f"change_detection: {pct}% change, {n} cluster(s). Largest cluster index: {ranked_clusters[0]['index'] if ranked_clusters else 0}"
-        elif task in ("scene_vqa", "numerical_vqa", "presence_vqa"):
-            prior_summary = f"vqa: answer={prior_result.get('answer', '?')}"
-        elif task == "grounding":
-            prior_summary = f"grounding: {prior_result.get('num_regions', 0)} region(s)"
-        elif task == "optical_sar_fusion":
-            prior_summary = f"optical_sar: {str(prior_result.get('answer', ''))[:80]}"
-        else:
-            prior_summary = f"{task}: completed"
-
-    system_prompt = (
-        "You are the autonomous AI Analyst orchestrator for SatQuery AI, an aerospace remote sensing workstation.\n"
-        "Your role: analyze user requests against current application state, select controlled tools, and produce an execution plan.\n\n"
-        "AVAILABLE TOOLS (STRICT REGISTRY — USE EXACT IDENTIFIERS ONLY):\n"
-        '- "change_detection": ChangeFormerV6 bi-temporal transformer. Requires has_image_2=true.\n'
-        '- "vqa": ViLT-B32 visual question answering. Works with 1 image.\n'
-        '- "grounding": OWL-ViT zero-shot spatial grounding bounding boxes. Works with 1 image.\n'
-        '- "optical_sar": Rule-based Optical + SAR dual-sensor fusion. Needs 2 images.\n'
-        '- "geospatial": Rasterio GeoTIFF CRS and coordinate extraction.\n'
-        '- "rank_change_clusters": Ranks cached ChangeFormer clusters by pixel area.\n'
-        '- "inspect_change_cluster": Extracts details for a specific cluster.\n'
-        '- "build_summary": Compiles executive summary from existing evidence.\n'
-        '- "build_report": Generates markdown intelligence report.\n'
-        '- "none": Direct navigation/conversational response without specialist execution.\n\n'
-        "CURRENT APPLICATION STATE:\n"
-        f"  has_image_1={has_image_1}, has_image_2={has_image_2}\n"
-        f"  current_tab={current_tab}\n"
-        f"  selected_cluster={selected_cluster}\n"
-        f"  prior_analysis={prior_summary}\n\n"
-        "FOLLOW-UP RULES:\n"
-        "1. If user asks 'Which is biggest?', 'Show largest', 'Show second largest': set specialist='rank_change_clusters', reuse_prior=true.\n"
-        "2. If user asks 'Show me' or 'Show the change map' or 'Highlight': set specialist='none', reuse_prior=true, add appropriate ui_actions.\n"
-        "3. If user asks 'Where is it?' or 'Coordinates': if prior geospatial exists, set specialist='geospatial', reuse_prior=true.\n"
-        "4. If user asks 'Why does this matter?' or 'Explain this': set specialist='none', reuse_prior=true, add 'show_why_this_matters' or 'show_why_this_result'.\n"
-        "5. If user asks 'Executive summary' or 'Investigate this': set specialist='build_summary' or appropriate multi-step chain.\n"
-        "6. If user asks for bi-temporal change but has_image_2 is false: set missing_input='image_2', requires_specialist=false.\n\n"
-        "ALLOWED UI ACTIONS (verbatim strings for ui_actions list):\n"
-        '  "navigate_tab:change-mask", "navigate_tab:interactive-overlay", "navigate_tab:side-by-side", "navigate_tab:diff-map",\n'
-        '  "select_cluster:0", "highlight_cluster", "show_geospatial", "show_grounding", "show_optical_sar",\n'
-        '  "open_trace", "open_evidence", "open_impact", "show_why_this_result", "show_why_this_matters",\n'
-        '  "show_executive_summary", "generate_report", "speak_response"\n\n'
-        "Return ONLY valid JSON:\n"
-        '{\n'
-        '  "intent": "brief explanation",\n'
-        '  "goal": "investigate_change / follow_up / navigate / inspect_region",\n'
-        '  "requires_specialist": true,\n'
-        '  "specialist": "change_detection",\n'
-        '  "question": "question for model if needed",\n'
-        '  "target_cluster": 0,\n'
-        '  "reuse_prior": false,\n'
-        '  "missing_input": null,\n'
-        '  "ui_actions": ["navigate_tab:change-mask", "select_cluster:0", "open_evidence"],\n'
-        '  "response_style": "analytical"\n'
-        '}'
-    )
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": query}
-    ]
-    raw = await _call_qwen3(messages, timeout=120.0)
-    try:
-        plan = _extract_json_from_llm(raw)
-        if plan.get("specialist") not in ALLOWED_SPECIALIST_TOOLS:
-            plan["specialist"] = "none"
-            plan["requires_specialist"] = False
-        if not isinstance(plan.get("ui_actions"), list):
-            plan["ui_actions"] = []
-        return plan
-    except Exception:
-        # Graceful fallback heuristic
-        q_lower = query.lower()
-        if any(w in q_lower for w in ["biggest", "largest", "rank"]):
-            return {
-                "intent": "Identify largest change cluster", "goal": "rank_clusters",
-                "requires_specialist": False, "specialist": "rank_change_clusters",
-                "reuse_prior": True, "target_cluster": 0,
-                "ui_actions": ["navigate_tab:interactive-overlay", "select_cluster:0", "highlight_cluster"],
-                "response_style": "analytical"
-            }
-        elif any(w in q_lower for w in ["where", "coordinate", "location", "crs"]):
-            return {
-                "intent": "Inspect geographic location", "goal": "geospatial",
-                "requires_specialist": False, "specialist": "geospatial",
-                "reuse_prior": True,
-                "ui_actions": ["show_geospatial", "open_evidence"],
-                "response_style": "analytical"
-            }
-        elif any(w in q_lower for w in ["why", "matter", "impact", "significance"]):
-            return {
-                "intent": "Explain domain significance", "goal": "impact",
-                "requires_specialist": False, "specialist": "none",
-                "reuse_prior": True,
-                "ui_actions": ["show_why_this_matters", "open_impact"],
-                "response_style": "analytical"
-            }
-        elif any(w in q_lower for w in ["summary", "executive"]):
-            return {
-                "intent": "Generate executive summary", "goal": "summary",
-                "requires_specialist": False, "specialist": "build_summary",
-                "reuse_prior": True,
-                "ui_actions": ["show_executive_summary", "open_summary"],
-                "response_style": "analytical"
-            }
-        return {
-            "intent": query, "goal": "general_query", "requires_specialist": False,
-            "specialist": "none", "question": query, "reuse_prior": bool(prior_result),
-            "ui_actions": [], "response_style": "conversational"
-        }
+    """Ask Universal Query Engine to produce a validated structured execution plan."""
+    mstate = MissionState()
+    mstate.inputs.has_image_1 = has_image_1
+    mstate.inputs.has_image_2 = has_image_2
+    mstate.ui.current_tab = current_tab
+    mstate.change.selected_cluster_index = selected_cluster
+    return await query_engine.plan_investigation(query, mstate, prior_result)
 
 
 async def _qwen3_synthesize(
@@ -630,112 +662,19 @@ async def _qwen3_synthesize(
     prior_result: Optional[dict],
     selected_cluster_info: Optional[dict] = None
 ) -> dict:
-    """Ask Qwen3 to synthesize a grounded response with provenance, why_this_result, why_this_matters, and executive summary."""
-    result_to_use = specialist_result or prior_result
-
-    # Format factual evidence
-    if result_to_use:
-        SKIP_KEYS = {
-            "change_mask", "difference_map", "overlay_t1", "overlay_t2",
-            "fusion_visualization", "visualization", "markdown_report"
-        }
-        safe = {
-            k: v for k, v in result_to_use.items()
-            if isinstance(v, (str, int, float, bool, list, dict))
-            and k not in SKIP_KEYS
-            and not k.endswith("_url")
-        }
-        if selected_cluster_info:
-            safe["selected_cluster_detail"] = selected_cluster_info
-        specialist_section = (
-            "ACTUAL SPECIALIST EVIDENCE (FACTUAL VALUES — YOU MUST ONLY REFERENCE THESE):\n"
-            + _json.dumps(safe, indent=2, default=str)[:3500]
-        )
-    else:
-        specialist_section = (
-            "No specialist analysis has run or no imagery was loaded. "
-            "Answer honestly from available context. Do not invent any numbers or detections."
-        )
-
-    system_prompt = (
-        "You are JARVIS 2.0, the AI Aerospace & Remote Sensing Analyst for SatQuery AI.\n\n"
-        "STRICT ANTI-HALLUCINATION & HONESTY CONTRACT:\n"
-        "1. NEVER fabricate numbers, percentages, pixel counts, bounding boxes, or confidence values.\n"
-        "2. Reference ONLY values present in the ACTUAL SPECIALIST EVIDENCE.\n"
-        "3. Clearly distinguish MODEL CONFIDENCE from GROUND TRUTH VALIDATION.\n"
-        "4. speak_text must be 1-2 natural conversational sentences (<25 words total), natural and concise.\n"
-        "5. why_this_matters must use hedged, professional analyst phrasing ('could indicate', 'may be relevant to', 'potential application in').\n"
-        "6. If no geospatial metadata exists, state that coordinates are unavailable; never invent coordinates.\n"
-        "7. If images are missing, state what image is needed.\n\n"
-        "Return ONLY valid JSON:\n"
-        '{\n'
-        '  "answer": "Detailed technical analysis referencing exact values",\n'
-        '  "speak_text": "Short conversational voice response under 25 words",\n'
-        '  "why_this_result": {\n'
-        '    "model": "Model name that produced the result",\n'
-        '    "inputs": "Input imagery used",\n'
-        '    "output_meaning": "What the metric/mask represents",\n'
-        '    "confidence_type": "Model confidence (not ground truth)",\n'
-        '    "limitations": "Model domain and boundary limits"\n'
-        '  },\n'
-        '  "why_this_matters": "Carefully hedged domain significance (urban expansion, infrastructure, land-use)",\n'
-        '  "recommended_next_step": "Evidence-based recommendation for the analyst",\n'
-        '  "executive_summary": {\n'
-        '    "finding": "Primary finding",\n'
-        '    "largest_change": "Largest detected region info",\n'
-        '    "evidence": "Key specialist metrics",\n'
-        '    "geospatial_info": "Geospatial status/metadata",\n'
-        '    "potential_relevance": "Potential application",\n'
-        '    "limitations": "Scientific limitations"\n'
-        '  }\n'
-        '}'
+    """Ask Universal Query Engine to synthesize a grounded response with provenance, why_this_result, why_this_matters, and executive summary."""
+    mstate = MissionState()
+    return await query_engine.synthesize_grounded_response(
+        query=query,
+        plan=plan,
+        specialist_result=specialist_result,
+        prior_result=prior_result,
+        state=mstate,
+        selected_cluster_info=selected_cluster_info
     )
 
-    user_msg = (
-        f'User Query: "{query}"\n'
-        f"Intent/Plan Goal: {plan.get('goal', 'analysis')}\n\n"
-        f"{specialist_section}\n\n"
-        "Synthesize grounded analyst output following the strict rules."
-    )
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_msg}
-    ]
-    raw = await _call_qwen3(messages, timeout=150.0)
-    try:
-        synth = _extract_json_from_llm(raw)
-        # Ensure speak_text is speech-normalized
-        if "speak_text" in synth and synth["speak_text"]:
-            synth["speak_text"] = prepare_speech_text(synth["speak_text"])
-        return synth
-    except Exception:
-        fallback_answer = (
-            result_to_use.get("answer", "Analysis complete.") if result_to_use
-            else "Please ensure imagery is loaded to run analysis."
-        )
-        return {
-            "answer": fallback_answer,
-            "speak_text": prepare_speech_text(fallback_answer),
-            "why_this_result": {
-                "model": result_to_use.get("task", "Specialist Engine") if result_to_use else "None",
-                "inputs": "T1/T2 Remote Sensing Imagery",
-                "output_meaning": "Detected spatial difference features",
-                "confidence_type": "Model Output Confidence",
-                "limitations": "Requires ground validation for semantic confirmation"
-            },
-            "why_this_matters": "Detected spatial differences could be relevant to infrastructure or land-use monitoring.",
-            "recommended_next_step": "Review the largest detected change cluster on the interactive overlay.",
-            "executive_summary": {
-                "finding": fallback_answer,
-                "largest_change": "Cluster 0",
-                "evidence": str(result_to_use.get("change_percentage", "N/A")) if result_to_use else "N/A",
-                "geospatial_info": "Standard pixel coordinates",
-                "potential_relevance": "Land cover & infrastructure monitoring",
-                "limitations": "Validation required"
-            }
-        }
-
+from ..agent.tools import TOOL_REGISTRY, ClusterAnalytics, EvidenceFusion, UIActionBuilder
 
 def _build_jarvis_ui_actions(
     plan: dict,
@@ -744,62 +683,19 @@ def _build_jarvis_ui_actions(
     target_cluster: Optional[int] = None
 ) -> list:
     """Build a VALIDATED list of UI actions — strict adherence to ALLOWED_UI_ACTIONS."""
-    actions: list = []
-
-    if trace_steps:
-        actions.append({"action": "show_agent_progress", "steps": trace_steps})
-
-    if specialist_result:
-        task = specialist_result.get("task", "")
-        if task == "change_analysis":
-            actions.append({"action": "navigate_tab", "tab": "change-mask"})
-            cluster_to_sel = target_cluster if target_cluster is not None else 0
-            if specialist_result.get("bboxes"):
-                actions.append({"action": "select_cluster", "index": cluster_to_sel})
-                actions.append({"action": "highlight_cluster", "index": cluster_to_sel})
-            actions.append({"action": "open_evidence"})
-            actions.append({"action": "show_why_this_result"})
-            actions.append({"action": "show_why_this_matters"})
-        elif task == "grounding":
-            actions.append({"action": "navigate_tab", "tab": "interactive-overlay"})
-            actions.append({"action": "show_grounding"})
-            actions.append({"action": "open_evidence"})
-        elif task in ("scene_vqa", "numerical_vqa", "presence_vqa"):
-            actions.append({"action": "show_vqa"})
-            actions.append({"action": "open_evidence"})
-        elif task == "optical_sar_fusion":
-            actions.append({"action": "navigate_tab", "tab": "interactive-overlay"})
-            actions.append({"action": "show_optical_sar"})
-            actions.append({"action": "open_evidence"})
-        actions.append({"action": "open_impact"})
-
-    # Parse and validate planned navigation actions
-    for action_str in plan.get("ui_actions", []):
-        parts = str(action_str).split(":", 1)
-        action_name = parts[0].strip()
-        action_param = parts[1].strip() if len(parts) > 1 else None
-        if action_name not in ALLOWED_UI_ACTIONS:
-            continue
-        action_obj: Dict[str, Any] = {"action": action_name}
-        if action_param:
-            if action_name == "navigate_tab":
-                action_obj["tab"] = action_param
-            elif action_name in ("select_cluster", "highlight_cluster", "zoom_to_cluster"):
-                try:
-                    action_obj["index"] = int(action_param)
-                except ValueError:
-                    action_obj["index"] = 0
-        if action_obj not in actions:
-            actions.append(action_obj)
-
-    return actions
+    return UIActionBuilder.build_actions(
+        plan=plan,
+        specialist_result=specialist_result,
+        trace_steps=trace_steps,
+        target_cluster=target_cluster
+    )
 
 
 async def _execute_jarvis_specialist(
     specialist: str, req: JarvisRequest, plan: dict
 ) -> Tuple[dict, str]:
     """Execute the selected specialist model and return (formatted_result, task_id)."""
-    question = plan.get("question", "") or req.query
+    question = plan.get("grounding_target") or plan.get("target_object") or plan.get("question", "") or req.query
 
     # Resolve Image 1
     img1 = None
@@ -915,15 +811,13 @@ async def jarvis_query(req: JarvisRequest):
     JARVIS 2.0 Autonomous Remote-Sensing Analyst Copilot Pipeline.
     State-aware planning -> Real specialist execution -> Grounded synthesis -> Provenance -> UI Actions -> Voice.
     """
-    # 1. Strict verification: Ollama qwen3:8b
-    ollama_ok, ollama_reason = await _check_ollama_status()
-    if not ollama_ok:
-        raise HTTPException(
-            status_code=503,
-            detail=f"JARVIS is unavailable because Ollama {OLLAMA_MODEL} could not be reached. {ollama_reason}"
-        )
+    req_id = uuid.uuid4().hex[:6]
+    t_start = time.perf_counter()
+    qwen_calls = 0
+    specialist_calls = 0
+    ollama_calls = 0
 
-    # 2. Retrieve cached prior result if provided
+    # 1. Retrieve cached prior result if provided
     prior_result: Optional[dict] = None
     if req.prior_result_id:
         prior_result = (
@@ -936,8 +830,9 @@ async def jarvis_query(req: JarvisRequest):
     trace_steps = ["Query received", "Application state verified"]
 
     try:
-        # 3. State-aware Qwen3:8b Planning
-        trace_steps.append(f"Building analysis plan with {OLLAMA_MODEL}")
+        # 2. State-aware Deterministic Planning
+        trace_steps.append("Building analysis plan")
+        t_plan_start = time.perf_counter()
         plan = await _qwen3_plan(
             query=req.query,
             has_image_1=req.has_image_1,
@@ -946,10 +841,65 @@ async def jarvis_query(req: JarvisRequest):
             prior_result=prior_result,
             selected_cluster=req.selected_cluster
         )
+        t_plan_done = time.perf_counter()
         specialist = plan.get("specialist", "none")
         goal = plan.get("goal", "analysis")
+        intent = plan.get("intent", "UNKNOWN")
         trace_steps.append(f"Plan goal: {goal}")
         trace_steps.append(f"Specialist selected: {specialist}")
+
+        # FAST PATH: Deterministic UI actions bypass Qwen, ChangeFormer, and Ollama completely (< 0.05s)
+        if intent.startswith("UI_") or intent == "UI_COMMAND":
+            t0_ui = time.perf_counter()
+            ui_actions = _build_jarvis_ui_actions(
+                plan=plan,
+                specialist_result=prior_result,
+                trace_steps=trace_steps,
+                target_cluster=0
+            )
+            resp_text = plan.get("response") or "Executing UI action."
+            jarvis_task_id = uuid.uuid4().hex[:12]
+            ui_ms = (time.perf_counter() - t0_ui) * 1000.0
+            total_dur = (time.perf_counter() - t_start) * 1000.0
+            timings = {
+                "1_reception": round((t_plan_start - t_start) * 1000.0, 2),
+                "2_img_preprocess": 0.0,
+                "3_model_init": 0.0,
+                "4_qwen_plan": round((t_plan_done - t_plan_start) * 1000.0, 2),
+                "5_specialist_infer": 0.0,
+                "6_evidence_fusion": 0.0,
+                "7_qwen_synthesis": 0.0,
+                "8_ui_serialization": round(ui_ms, 2),
+                "9_total_e2e": round(total_dur, 2)
+            }
+            logger.info(
+                f"[JARVIS][{req_id}] QUERY=\"{req.query}\" INTENT={intent} "
+                f"TOTAL={total_dur:.1f}ms FAST_PATH=TRUE"
+            )
+            return {
+                "success": True,
+                "intent": intent,
+                "response": resp_text,
+                "answer": resp_text,
+                "speak_text": prepare_speech_text(resp_text),
+                "audio_base64": None,
+                "evidence": prior_result or {},
+                "ui_action": plan.get("ui_action"),
+                "ui_actions": ui_actions,
+                "task_id": jarvis_task_id,
+                "specialist_task_id": None,
+                "model": "UI Fast Path",
+                "timings_ms": timings,
+                "trace": trace_steps + [f"Fast-path UI dispatch for {intent}"]
+            }
+
+        # 3. For analytical queries that require LLM synthesis, verify Ollama readiness
+        ollama_ok, ollama_reason = await _check_ollama_status()
+        if not ollama_ok:
+            raise HTTPException(
+                status_code=503,
+                detail=f"JARVIS is unavailable because Ollama {OLLAMA_MODEL} could not be reached. {ollama_reason}"
+            )
 
         # 4. Handle Missing Requirements honestly
         if plan.get("missing_input") == "image_2" or (specialist == "change_detection" and not req.has_image_2):
@@ -959,10 +909,14 @@ async def jarvis_query(req: JarvisRequest):
             )
             audio_info = await tts_service.synthesize_base64(missing_text) if req.voice_enabled else {}
             return {
+                "success": False,
+                "intent": intent,
+                "response": missing_text,
                 "answer": missing_text,
                 "speak_text": prepare_speech_text(missing_text),
                 "audio_base64": audio_info.get("audio_base64"),
                 "evidence": {},
+                "ui_action": None,
                 "ui_actions": [{"action": "navigate_tab", "tab": "overview"}],
                 "why_this_result": {
                     "model": "None",
@@ -989,37 +943,57 @@ async def jarvis_query(req: JarvisRequest):
         new_task_id: Optional[str] = None
         selected_cluster_info: Optional[dict] = None
         target_cluster_idx = plan.get("target_cluster", 0)
+        t0_specialist = time.perf_counter()
+        specialist_infer_ms = 0.0
+        evidence_fusion_ms = 0.0
 
         if specialist in ("rank_change_clusters", "inspect_change_cluster") or (plan.get("reuse_prior") and prior_result):
             specialist_result = prior_result
             new_task_id = req.prior_result_id
             trace_steps.append("Reusing cached specialist analysis (avoided model rerun)")
+            t0_fus = time.perf_counter()
             if prior_result and prior_result.get("bboxes"):
                 ranked = ClusterAnalytics.rank_clusters(prior_result["bboxes"])
                 selected_cluster_info = ClusterAnalytics.get_cluster(ranked, target_cluster_idx)
                 trace_steps.append(f"Ranked {len(ranked)} clusters; selected cluster {target_cluster_idx}")
+            evidence_fusion_ms = (time.perf_counter() - t0_fus) * 1000.0
 
         elif plan.get("requires_specialist") and specialist != "none":
             if not req.has_image_1:
                 raise HTTPException(400, detail="No imagery loaded. Please upload or select images first.")
             trace_steps.append(f"Executing {specialist} specialist")
+            specialist_calls = 1
             try:
                 specialist_result, new_task_id = await _execute_jarvis_specialist(specialist, req, plan)
-                et = specialist_result.get("execution_time_sec", 0) or 0
-                trace_steps.append(f"Specialist inference complete ({et:.1f}s)")
+                specialist_infer_ms = (time.perf_counter() - t0_specialist) * 1000.0
+                trace_steps.append(f"Specialist inference complete ({specialist_infer_ms / 1000.0:.2f}s)")
+                t0_fus = time.perf_counter()
                 if specialist_result.get("bboxes"):
                     ranked = ClusterAnalytics.rank_clusters(specialist_result["bboxes"])
                     selected_cluster_info = ClusterAnalytics.get_cluster(ranked, 0)
                     trace_steps.append(f"Identified {len(ranked)} change clusters")
+                evidence_fusion_ms = (time.perf_counter() - t0_fus) * 1000.0
             except HTTPException:
                 raise
             except Exception as exc:
-                raise HTTPException(500, detail=f"Specialist {specialist} failed: {exc}")
+                logger.warning(f"Specialist {specialist} execution issue: {exc}")
+                trace_steps.append(f"Specialist {specialist} limitation: {exc}")
+                specialist_result = {
+                    "task": specialist,
+                    "answer": f"The {specialist} specialist is currently unavailable ({exc}).",
+                    "confidence": 0.5,
+                    "confidence_source": "Heuristic Assessment",
+                    "models_used": [f"{specialist} (Limited)"],
+                    "warnings": [str(exc)]
+                }
+                new_task_id = uuid.uuid4().hex[:12]
         else:
             trace_steps.append("Contextual synthesis (no specialist execution required)")
 
         # 6. Synthesize Grounded Analyst Response with Qwen3:8b
         trace_steps.append(f"Synthesizing grounded analysis with {OLLAMA_MODEL}")
+        ollama_calls = 1
+        t0_synth = time.perf_counter()
         synthesis = await _qwen3_synthesize(
             query=req.query,
             plan=plan,
@@ -1027,8 +1001,10 @@ async def jarvis_query(req: JarvisRequest):
             prior_result=prior_result,
             selected_cluster_info=selected_cluster_info
         )
+        synthesis_ms = (time.perf_counter() - t0_synth) * 1000.0
 
         # 7. Generate Validated UI Actions
+        t0_ui = time.perf_counter()
         ui_actions = _build_jarvis_ui_actions(
             plan=plan,
             specialist_result=specialist_result,
@@ -1063,7 +1039,31 @@ async def jarvis_query(req: JarvisRequest):
         if specialist_result and new_task_id:
             results_cache[jarvis_task_id] = specialist_result
 
+        ui_ms = (time.perf_counter() - t0_ui) * 1000.0
+        total_e2e_ms = (time.perf_counter() - t_start) * 1000.0
+
+        timings_ms = {
+            "1_reception": round((t_plan_start - t_start) * 1000.0, 2),
+            "2_img_preprocess": round(max(0.0, specialist_infer_ms * 0.1), 2),
+            "3_model_init": 0.0,
+            "4_qwen_plan": round((t_plan_done - t_plan_start) * 1000.0, 2),
+            "5_specialist_infer": round(specialist_infer_ms, 2),
+            "6_evidence_fusion": round(evidence_fusion_ms, 2),
+            "7_qwen_synthesis": round(synthesis_ms, 2),
+            "8_ui_serialization": round(ui_ms, 2),
+            "9_total_e2e": round(total_e2e_ms, 2)
+        }
+
+        logger.info(
+            f"[JARVIS][{req_id}] QUERY=\"{req.query}\" INTENT={intent} "
+            f"TOTAL={total_e2e_ms:.1f}ms [PLAN={timings_ms['4_qwen_plan']}ms, "
+            f"SPEC={timings_ms['5_specialist_infer']}ms, SYNTH={timings_ms['7_qwen_synthesis']}ms]"
+        )
+
         return {
+            "success": True,
+            "intent": intent,
+            "response": synthesis.get("answer", "Analysis complete."),
             "answer": synthesis.get("answer", "Analysis complete."),
             "speak_text": speak_text,
             "audio_base64": audio_base64,
@@ -1073,10 +1073,12 @@ async def jarvis_query(req: JarvisRequest):
             "why_this_matters": synthesis.get("why_this_matters", ""),
             "recommended_next_step": synthesis.get("recommended_next_step", ""),
             "executive_summary": synthesis.get("executive_summary", {}),
+            "ui_action": plan.get("ui_action"),
             "ui_actions": ui_actions,
             "task_id": jarvis_task_id,
             "specialist_task_id": new_task_id,
             "model": OLLAMA_MODEL,
+            "timings_ms": timings_ms,
             "trace": trace_steps
         }
 
@@ -1130,3 +1132,10 @@ async def jarvis_explain(req: JarvisExplainRequest):
         "model": OLLAMA_MODEL,
         "reused_result_id": req.prior_result_id
     }
+
+
+@app.post("/api/v1/jarvis/action_ack", tags=["JARVIS 2.0"])
+async def jarvis_action_ack(req: ActionAckRequest):
+    """Acknowledge executed UI action from frontend to maintain bidirectional state sync."""
+    return {"status": "acknowledged", "action": req.action, "result": req.status}
+

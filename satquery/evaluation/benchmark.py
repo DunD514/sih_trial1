@@ -5,9 +5,10 @@ Inference Latency, and generates Baseline vs. Upgraded comparative tables.
 This version executes real models against a test dataset for defensible metrics.
 """
 
-import os
-os.environ["HF_HOME"] = "D:/ChangeFormer/.hf_cache"
+# HF cache uses default standard cache or current workspace
 
+
+import os
 import time
 import json
 from typing import Dict, Any, List, Tuple, Optional

@@ -3,390 +3,450 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SatQuery AI - Multimodal Remote Sensing Assistant</title>
+  <title>SatQuery AI — Satellite Intelligence Workspace</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v=4.0">
 </head>
 <body>
-  <!-- Top Navigation Header -->
-  <header class="app-header">
-    <div class="brand-section">
-      <div class="logo-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="9"></circle>
-          <path d="M12 3v6"></path>
-          <path d="M12 15v6"></path>
-          <path d="M3 12h6"></path>
-          <path d="M15 12h6"></path>
-          <circle cx="12" cy="12" r="3" fill="#00e5ff"></circle>
-        </svg>
-      </div>
-      <div>
-        <h1 class="brand-title">SatQuery AI</h1>
-        <p class="brand-subtitle">SIH26167 &bull; Multimodal Remote Sensing AI Assistant &bull; Powered by ChangeFormerV6</p>
-      </div>
-    </div>
-    <div class="header-right">
-      <!-- JARVIS Toggle -->
-      <div class="jarvis-toggle-group" id="jarvis-toggle-group">
-        <span class="jarvis-label-left">JARVIS</span>
-        <button class="jarvis-toggle-btn" id="jarvis-toggle" title="Toggle JARVIS Mode" aria-pressed="false">
-          <span class="jarvis-dot" id="jarvis-dot"></span>
-        </button>
-        <span class="jarvis-toggle-label" id="jarvis-label">OFF</span>
-      </div>
-      <!-- Header Badges -->
-      <div class="header-badges">
-        <span class="badge badge-cuda"><span class="pulse-dot"></span> CUDA (GTX 1650)</span>
-        <span class="badge badge-model">ChangeFormerV6</span>
-        <span class="badge badge-voice" id="jarvis-voice-badge">VOICE: Neural Ready</span>
-        <span class="badge badge-agent" id="jarvis-status-badge">Agent Orchestrator Active</span>
-      </div>
-    </div>
-  </header>
-
-  <!-- JARVIS Command Bar (shown when JARVIS is ON) -->
-  <div class="jarvis-bar" id="jarvis-bar">
-    <div class="jarvis-bar-inner">
-      <div class="jarvis-status-strip">
-        <span class="jarvis-bar-pulse" id="jarvis-status-dot"></span>
-        <span id="jarvis-listening-text">JARVIS ONLINE &mdash; Speak or type a command</span>
-        <div class="jarvis-voice-indicator" id="jarvis-voice-indicator" style="display: none;">
-          <span class="voice-bar"></span>
-          <span class="voice-bar"></span>
-          <span class="voice-bar"></span>
-          <span class="voice-bar"></span>
+  <div class="app-shell">
+    
+    <!-- 1. Top Minimal Navigation -->
+    <header class="top-nav">
+      <div class="nav-left">
+        <div class="brand-anchor">
+          <div class="brand-symbol">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3" fill="#00f0ff" stroke="#00f0ff"></circle>
+              <path d="M4.93 4.93l4.24 4.24m5.66 5.66l4.24 4.24M19.07 4.93l-4.24 4.24m-5.66 5.66l-4.24 4.24"></path>
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.4"></circle>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <div class="brand-name">
+              SatQuery <span class="brand-badge">AI</span>
+            </div>
+            <span class="brand-subtitle">Multimodal Earth Intelligence</span>
+          </div>
         </div>
-        <span class="jarvis-model-tag">qwen3:8b</span>
       </div>
-      <div class="jarvis-input-row">
-        <button class="jarvis-mic-btn" id="jarvis-mic-btn" title="Voice Input (Click to speak / Interrupt)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-            <line x1="12" y1="19" x2="12" y2="23"></line>
-            <line x1="8" y1="23" x2="16" y2="23"></line>
-          </svg>
-        </button>
-        <textarea id="jarvis-input" class="jarvis-textarea" placeholder="e.g. 'What changed between these images?' or 'Show me the biggest change.'" rows="1"></textarea>
-        <button class="jarvis-submit-btn" id="jarvis-submit-btn" title="Send Query">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        </button>
+
+      <nav class="nav-center">
+        <button class="nav-item active" id="nav-btn-explore" data-nav="explore">Explore</button>
+        <button class="nav-item" id="nav-btn-change" data-nav="change">Change Analysis</button>
+        <button class="nav-item" id="nav-btn-grounding" data-nav="grounding">Grounding</button>
+        <button class="nav-item" id="nav-btn-reports" data-nav="reports">Reports</button>
+      </nav>
+
+      <div class="nav-right">
+        <div class="gpu-indicator" title="CUDA Engine GTX 1650 Active">
+          <span class="status-dot"></span>
+          <span>CUDA Ready</span>
+        </div>
+
+        <!-- JARVIS Autonomous Analyst Switch -->
+        <div class="jarvis-toggle-group" id="jarvis-toggle-group">
+          <span class="jarvis-label-left">JARVIS</span>
+          <button class="jarvis-toggle-btn" id="jarvis-toggle" title="Toggle JARVIS Autonomous Analyst" aria-pressed="false">
+            <span class="jarvis-dot" id="jarvis-dot"></span>
+          </button>
+          <span class="jarvis-toggle-label" id="jarvis-label">OFF</span>
+        </div>
+
+        <!-- Hidden badges for backend compatibility -->
+        <span id="jarvis-voice-badge" style="display: none;">VOICE: Neural Ready</span>
+        <span id="jarvis-status-badge" style="display: none;">Agent Orchestrator Active</span>
       </div>
-      <div class="jarvis-conversation" id="jarvis-conversation"></div>
-    </div>
+    </header>
+
+    <!-- 2. Main Workspace Layout -->
+    <main class="workspace-grid">
+      
+      <!-- Center & Left Stage: Image Canvas + Command Console -->
+      <section class="canvas-stage-wrapper">
+        
+        <!-- Docked Ingestion Bar -->
+        <div class="scene-dock">
+          <!-- Benchmark Sample Dropdown -->
+          <div class="sample-selector-wrap">
+            <select id="sample-select" class="clean-select" title="Load pre-loaded benchmark imagery">
+              <option value="">Select benchmark sample pair...</option>
+            </select>
+          </div>
+
+          <!-- Dual Imagery Slots -->
+          <div class="image-slots">
+            <!-- T1 Primary Slot -->
+            <div class="slot-box" id="drop-zone-1" title="Primary Acquisition (T1 / Optical) - Click or drop file">
+              <div class="slot-thumb" id="preview-area-1">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <img id="img-preview-1" class="hidden-preview" alt="T1 Preview">
+                <div class="upload-placeholder" style="display:none;"></div>
+              </div>
+              <div class="slot-meta">
+                <span class="slot-title">T1 Optical</span>
+                <span class="slot-hint">Base acquisition</span>
+              </div>
+              <input type="file" id="file-input-1" accept="image/*,.tif,.tiff,.geotiff" hidden>
+            </div>
+
+            <!-- T2 Secondary Slot -->
+            <div class="slot-box" id="drop-zone-2" title="Secondary Acquisition (T2 / SAR) - Click or drop file">
+              <div class="slot-thumb" id="preview-area-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <img id="img-preview-2" class="hidden-preview" alt="T2 Preview">
+                <div class="upload-placeholder" style="display:none;"></div>
+              </div>
+              <div class="slot-meta">
+                <span class="slot-title">T2 Compare / SAR</span>
+                <span class="slot-hint">Bi-temporal pair</span>
+              </div>
+              <input type="file" id="file-input-2" accept="image/*,.tif,.tiff,.geotiff" hidden>
+            </div>
+          </div>
+        </div>
+
+        <!-- Canvas Toolbar -->
+        <div class="canvas-toolbar">
+          <div class="layer-tabs">
+            <button class="layer-tab-btn tab-btn active" data-tab="interactive-overlay">Visual Overlay</button>
+            <button class="layer-tab-btn tab-btn" data-tab="side-by-side">Side-by-Side</button>
+            <button class="layer-tab-btn tab-btn" data-tab="change-mask">Change Mask</button>
+            <button class="layer-tab-btn tab-btn" data-tab="diff-map">Difference Heatmap</button>
+          </div>
+
+          <div class="canvas-tools-right">
+            <div class="opacity-slider-wrap" id="opacity-container">
+              <span>Blend:</span>
+              <input type="range" id="overlay-opacity" min="0" max="100" value="50" title="Overlay transparency">
+            </div>
+            <span id="geo-badge" class="meta-chip">Res: Standard</span>
+          </div>
+        </div>
+
+        <!-- Main Image Viewport -->
+        <div class="main-viewport">
+          <!-- Interactive Overlay View -->
+          <div class="tab-content active" id="tab-interactive-overlay">
+            <div class="image-canvas-container" id="stage-overlay">
+              <img id="view-base-img" class="viewport-img" alt="Base Satellite Observation">
+              <img id="view-overlay-img" class="viewport-img overlay-layer" alt="Overlay Difference Layer">
+              <div id="bbox-overlay-layer" class="bbox-layer"></div>
+            </div>
+          </div>
+
+          <!-- Side-by-Side View -->
+          <div class="tab-content" id="tab-side-by-side">
+            <div class="split-view">
+              <div class="split-pane">
+                <span class="split-label">T1 / Primary Optical</span>
+                <img id="view-split-t1" class="viewport-img" alt="T1 Optical">
+              </div>
+              <div class="split-pane">
+                <span class="split-label">T2 / Comparison / SAR</span>
+                <img id="view-split-t2" class="viewport-img" alt="T2 Comparison">
+              </div>
+            </div>
+          </div>
+
+          <!-- Change Mask View -->
+          <div class="tab-content" id="tab-change-mask">
+            <div class="image-canvas-container">
+              <img id="view-mask-img" class="viewport-img mask-img" alt="Change Mask">
+            </div>
+          </div>
+
+          <!-- Difference Heatmap View -->
+          <div class="tab-content" id="tab-diff-map">
+            <div class="image-canvas-container">
+              <img id="view-diff-img" class="viewport-img" alt="Difference Probability Heatmap">
+            </div>
+          </div>
+
+          <!-- Floating Colormap Legend -->
+          <div class="canvas-legend" id="canvas-legend">
+            <span>Probability</span>
+            <div class="legend-bar"></div>
+            <span>High</span>
+          </div>
+        </div>
+
+        <!-- Canvas Metrics Strip -->
+        <div class="canvas-metrics-bar" id="viewer-footer">
+          <div class="metric-item">
+            <span class="metric-label">Changed Area</span>
+            <span class="metric-value highlight" id="stat-change-pct">-- %</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Clusters</span>
+            <span class="metric-value" id="stat-clusters">--</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Confidence</span>
+            <span class="metric-value" id="stat-confidence">--</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Engine</span>
+            <span class="metric-value" id="stat-model">Ready</span>
+          </div>
+        </div>
+
+        <!-- JARVIS Assistant Live Strip -->
+        <div class="jarvis-bar" id="jarvis-bar">
+          <div class="jarvis-status-strip">
+            <span class="jarvis-bar-pulse" id="jarvis-status-dot"></span>
+            <span id="jarvis-listening-text">JARVIS ONLINE &mdash; Speak or type your analytical question</span>
+            <div class="jarvis-voice-indicator" id="jarvis-voice-indicator" style="display: none;">
+              <span class="voice-bar"></span>
+              <span class="voice-bar"></span>
+              <span class="voice-bar"></span>
+              <span class="voice-bar"></span>
+            </div>
+          </div>
+          <span class="meta-chip">qwen3:8b</span>
+        </div>
+
+        <!-- Integrated AI Command & Query Console -->
+        <div class="command-console">
+          <div class="query-input-bar">
+            <!-- Hidden jarvis-input mirror for full compatibility -->
+            <input type="text" id="jarvis-input" style="display:none;">
+
+            <!-- Main Natural Language Query Input -->
+            <input type="text" id="user-prompt" class="query-input" placeholder="Ask about this scene (e.g. 'What changed between these images?' or 'Locate buildings')...">
+
+            <!-- Specialist Task Selector (Compact) -->
+            <select id="task-select" class="task-dropdown-minimal" title="Autonomous task routing">
+              <option value="auto">Auto Router</option>
+              <option value="change_analysis">Change Detection</option>
+              <option value="single_vqa">Visual QA</option>
+              <option value="captioning">Scene Captioning</option>
+              <option value="grounding">Object Grounding</option>
+              <option value="optical_sar_fusion">Optical + SAR</option>
+            </select>
+
+            <!-- Voice Input Button -->
+            <button class="mic-action-btn" id="jarvis-mic-btn" title="Voice Input (Click to speak / Interrupt)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+            </button>
+
+            <!-- Submit Button -->
+            <button class="submit-action-btn" id="btn-analyze" title="Run Analysis">
+              <span class="btn-text">Execute</span>
+              <div class="spinner" id="analyze-spinner"></div>
+            </button>
+
+            <!-- Hidden JARVIS submit button mirror for compatibility -->
+            <button id="jarvis-submit-btn" style="display:none;"></button>
+          </div>
+
+          <!-- Quick Suggestion Chips -->
+          <div class="quick-prompts">
+            <button class="prompt-chip chip-btn" data-query="What changed between these two images?">What changed?</button>
+            <button class="prompt-chip chip-btn" data-query="Describe this scene.">Describe scene</button>
+            <button class="prompt-chip chip-btn" data-query="Where is the built-up region?">Locate structures</button>
+            <button class="prompt-chip chip-btn" data-query="Analyze optical and SAR radar backscatter.">Optical vs SAR</button>
+            <button class="prompt-chip chip-btn" data-query="Why might this change matter?">Why it matters</button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Context & Intelligence Panel -->
+      <aside class="context-panel">
+        
+        <!-- Tabbed Navigation Header -->
+        <div class="panel-header-tabs">
+          <button class="panel-tab-btn active" id="tab-btn-intel" data-target="panel-intel">Intelligence</button>
+          <button class="panel-tab-btn" id="tab-btn-evidence" data-target="panel-evidence">Evidence</button>
+          <button class="panel-tab-btn" id="tab-btn-trace" data-target="panel-trace">Agent Trace</button>
+        </div>
+
+        <!-- Panel Body -->
+        <div class="panel-scroll-body">
+
+          <!-- Section A: Intelligence & Conversation -->
+          <div class="panel-section active" id="panel-intel" style="display: flex; flex-direction: column; gap: 14px;">
+            
+            <!-- Provenance Strip -->
+            <div class="provenance-strip" id="jarvis-provenance-strip" style="display: none;">
+              <span class="provenance-label">PROVENANCE:</span>
+              <span class="provenance-value" id="provenance-source">ChangeFormerV6</span>
+              <span class="provenance-id" id="provenance-id">ID: --</span>
+            </div>
+
+            <!-- Synthesized Answer Card -->
+            <div class="intel-card card-primary">
+              <div class="card-header-line">
+                <span class="card-title">Synthesized Assessment</span>
+              </div>
+              <div class="card-subtext" id="ai-answer">
+                Select a benchmark sample or upload imagery above, then submit a natural-language inquiry to initiate Earth Observation analysis.
+              </div>
+            </div>
+
+            <!-- Interactive Conversation Stream (when JARVIS active) -->
+            <div class="conversation-stream" id="jarvis-conversation" style="display: none;"></div>
+
+            <!-- Why This Matters Card -->
+            <div class="intel-card" id="why-matters-card">
+              <div class="card-header-line">
+                <span class="card-title">Operational Relevance</span>
+              </div>
+              <div class="card-subtext" id="why-matters-text">
+                Assessment of domain significance and potential operational implications will appear here.
+              </div>
+            </div>
+
+            <!-- Recommended Next Step Card -->
+            <div class="intel-card" id="recommended-next-card" style="display: none;">
+              <div class="card-header-line">
+                <span class="card-title">Recommended Next Step</span>
+              </div>
+              <div class="card-subtext" id="recommended-next-text">
+                Review the primary change region on the visual overlay.
+              </div>
+            </div>
+
+            <!-- Executive Summary Card -->
+            <div class="intel-card" id="exec-summary-card">
+              <div class="card-header-line">
+                <span class="card-title">Executive Brief</span>
+              </div>
+              <div id="exec-summary-content" class="exec-summary-body">
+                <span style="color: var(--text-muted); font-size: 11.5px;">Executive brief will populate upon executing analysis.</span>
+              </div>
+            </div>
+
+            <!-- Report Export Actions -->
+            <div class="export-group">
+              <button id="btn-download-md" class="btn-export" disabled title="Export detailed Markdown analytical brief">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Markdown Brief
+              </button>
+              <button id="btn-download-geojson" class="btn-export btn-export-accent" disabled title="Export standard GIS GeoJSON polygons">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                  <polyline points="2 17 12 22 22 17"></polyline>
+                  <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
+                GeoJSON Layers
+              </button>
+            </div>
+          </div>
+
+          <!-- Section B: Scientific Evidence & Model Provenance -->
+          <div class="panel-section" id="panel-evidence" style="display: none; flex-direction: column; gap: 14px;">
+            
+            <!-- Qwen2-VL Visual Context -->
+            <div class="intel-card" id="visual-context-card" style="display: none;">
+              <div class="card-header-line">
+                <span class="card-title">Qwen2-VL Visual Context</span>
+              </div>
+              <div class="detail-grid" id="visual-context-body">
+                <div class="detail-row"><strong>Image Type:</strong> <span id="vc-image-type">--</span></div>
+                <div class="detail-row"><strong>Summary:</strong> <span id="vc-summary">--</span></div>
+                <div class="detail-row"><strong>Land Cover:</strong> <span id="vc-land-cover">--</span></div>
+                <div class="detail-row"><strong>Infrastructure:</strong> <span id="vc-infrastructure">--</span></div>
+                <div class="detail-row"><strong>Terrain/Water:</strong> <span id="vc-terrain-water">--</span></div>
+                <div class="detail-row"><strong>Conditions:</strong> <span id="vc-conditions">--</span></div>
+                <div class="detail-row"><strong>Limitations:</strong> <span id="vc-uncertainties">--</span></div>
+              </div>
+            </div>
+
+            <!-- Why This Result Card -->
+            <div class="intel-card" id="why-result-card" style="display: none;">
+              <div class="card-header-line">
+                <span class="card-title">Why This Result</span>
+              </div>
+              <div class="detail-grid" id="why-result-body">
+                <div class="detail-row"><strong>Model:</strong> <span id="why-result-model">--</span></div>
+                <div class="detail-row"><strong>Inputs:</strong> <span id="why-result-inputs">--</span></div>
+                <div class="detail-row"><strong>Meaning:</strong> <span id="why-result-meaning">--</span></div>
+                <div class="detail-row"><strong>Confidence:</strong> <span id="why-result-confidence">--</span></div>
+                <div class="detail-row"><strong>Limitations:</strong> <span id="why-result-limitations">--</span></div>
+              </div>
+            </div>
+
+            <!-- Evidence Panel Card -->
+            <div class="intel-card" id="evidence-panel-card" style="display: none;">
+              <div class="card-header-line">
+                <span class="card-title">Supporting Evidence</span>
+              </div>
+              <div class="exec-summary-body" id="evidence-panel-body">
+                <ul class="trace-timeline" id="evidence-items-list" style="padding-left: 4px;">
+                  <li>&#10003; Optical sensor input active</li>
+                </ul>
+                <div class="tags-cloud" id="provenance-badges-list" style="margin-top: 8px;">
+                  <span class="tag">ChangeFormerV6</span>
+                  <span class="tag">OWL-ViT</span>
+                  <span class="tag">ViLT-B32</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Semantic Classification Tags -->
+            <div class="intel-card">
+              <div class="card-header-line">
+                <span class="card-title">Specialist Classifications</span>
+              </div>
+              <div class="tags-cloud" id="semantic-tags">
+                <span class="tag">ChangeFormerV6 Active</span>
+                <span class="tag">Zero-Shot Grounding</span>
+                <span class="tag">RS-VQA Ready</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section C: Agent Execution Trace -->
+          <div class="panel-section" id="panel-trace" style="display: none; flex-direction: column; gap: 14px;">
+            
+            <!-- JARVIS Agent Trace -->
+            <div class="intel-card" id="jarvis-trace-card">
+              <div class="card-header-line">
+                <span class="card-title">JARVIS Orchestrator Trace</span>
+              </div>
+              <ol class="trace-timeline" id="jarvis-trace-list"></ol>
+            </div>
+
+            <!-- Standard Execution Trace -->
+            <div class="intel-card">
+              <div class="card-header-line">
+                <span class="card-title">System Execution Trail</span>
+              </div>
+              <ol class="trace-timeline" id="trace-list">
+                <li class="trace-item complete"><span class="step-num">1</span> System initialized</li>
+                <li class="trace-item complete"><span class="step-num">2</span> CUDA environment active</li>
+                <li class="trace-item complete"><span class="step-num">3</span> ChangeFormerV6 adapter ready</li>
+              </ol>
+            </div>
+          </div>
+
+        </div>
+      </aside>
+
+    </main>
+
   </div>
 
-  <!-- Main 3-Pane Workspace -->
-  <main class="app-container">
-    
-    <!-- LEFT PANE: Mission Control & Data Ingestion -->
-    <aside class="panel left-panel">
-      <div class="panel-header">
-        <h2>Mission Ingestion</h2>
-        <span class="panel-tag">Dual-Sensor</span>
-      </div>
-
-      <!-- Sample Dataset Dropdown -->
-      <div class="control-group">
-        <label class="control-label" for="sample-select">Load Benchmark Sample</label>
-        <select id="sample-select" class="form-select">
-          <option value="">Select pre-loaded sample pair...</option>
-        </select>
-      </div>
-
-      <!-- Image 1 Upload -->
-      <div class="upload-box" id="drop-zone-1">
-        <div class="upload-header">
-          <span class="upload-title">Primary Image (T1 / Optical)</span>
-          <span class="required-tag">Required</span>
-        </div>
-        <div class="preview-area" id="preview-area-1">
-          <div class="upload-placeholder">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <p>Drag &amp; drop or <span>browse</span></p>
-            <span class="sub-text">PNG, JPG, TIFF, GeoTIFF</span>
-          </div>
-          <img id="img-preview-1" class="hidden-preview" alt="Primary Preview">
-        </div>
-        <input type="file" id="file-input-1" accept="image/*,.tif,.tiff,.geotiff" hidden>
-      </div>
-
-      <!-- Image 2 Upload -->
-      <div class="upload-box" id="drop-zone-2">
-        <div class="upload-header">
-          <span class="upload-title">Secondary Image (T2 / SAR)</span>
-          <span class="optional-tag">Bi-temporal / SAR</span>
-        </div>
-        <div class="preview-area" id="preview-area-2">
-          <div class="upload-placeholder">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <p>Drag &amp; drop or <span>browse</span></p>
-            <span class="sub-text">PNG, JPG, TIFF, GeoTIFF</span>
-          </div>
-          <img id="img-preview-2" class="hidden-preview" alt="Secondary Preview">
-        </div>
-        <input type="file" id="file-input-2" accept="image/*,.tif,.tiff,.geotiff" hidden>
-      </div>
-
-      <!-- Task Selector -->
-      <div class="control-group">
-        <label class="control-label" for="task-select">Remote Sensing Task</label>
-        <select id="task-select" class="form-select">
-          <option value="auto">Auto-Detect Task (Agentic Router)</option>
-          <option value="change_analysis">Bi-temporal Change Analysis (ChangeFormerV6)</option>
-          <option value="single_vqa">Single-Image Visual Question Answering (ViLT)</option>
-          <option value="captioning">Remote Sensing Scene Captioning</option>
-          <option value="grounding">Text-Guided Region Grounding (OWL-ViT)</option>
-          <option value="optical_sar_fusion">Optical + SAR Cross-Modal Fusion</option>
-        </select>
-      </div>
-
-      <!-- Natural Language Query Input -->
-      <div class="control-group">
-        <label class="control-label" for="user-prompt">Natural Language Query</label>
-        <div class="query-box-wrapper">
-          <textarea id="user-prompt" rows="3" class="form-textarea" placeholder="e.g. What changed between T1 and T2? Or locate built-up structures..."></textarea>
-        </div>
-        <div class="quick-chips">
-          <button class="chip-btn" data-query="What changed between these two images?">What changed?</button>
-          <button class="chip-btn" data-query="What type of land cover is visible?">Land cover?</button>
-          <button class="chip-btn" data-query="Where is the built-up region?">Locate structures</button>
-          <button class="chip-btn" data-query="Analyze optical and SAR radar backscatter.">Optical vs SAR</button>
-        </div>
-      </div>
-
-      <button id="btn-analyze" class="btn-primary">
-        <span class="btn-text">Execute Analysis</span>
-        <div class="spinner" id="analyze-spinner"></div>
-      </button>
-    </aside>
-
-    <!-- CENTER PANE: Visual Evidence & Overlays -->
-    <section class="panel center-panel">
-      <div class="panel-header">
-        <div class="view-tabs">
-          <button class="tab-btn active" data-tab="interactive-overlay">Visual Overlay</button>
-          <button class="tab-btn" data-tab="side-by-side">Side-by-Side</button>
-          <button class="tab-btn" data-tab="change-mask">Change Mask</button>
-          <button class="tab-btn" data-tab="diff-map">Difference Heatmap</button>
-        </div>
-        <div class="canvas-controls">
-          <span id="geo-badge" class="geo-badge">Res: --</span>
-          <label class="opacity-control" id="opacity-container">
-            <span>Overlay:</span>
-            <input type="range" id="overlay-opacity" min="0" max="100" value="50">
-          </label>
-        </div>
-      </div>
-
-      <!-- Canvas & Image Viewer Stage -->
-      <div class="viewer-viewport">
-        <!-- Interactive Overlay View -->
-        <div class="tab-content active" id="tab-interactive-overlay">
-          <div class="image-stage" id="stage-overlay">
-            <img id="view-base-img" class="viewport-img" alt="Base Image">
-            <img id="view-overlay-img" class="viewport-img overlay-layer" alt="Overlay Layer">
-            <div id="bbox-overlay-layer" class="bbox-layer"></div>
-          </div>
-        </div>
-
-        <!-- Side-by-Side View -->
-        <div class="tab-content" id="tab-side-by-side">
-          <div class="split-view">
-            <div class="split-pane">
-              <span class="split-label">Timepoint 1 / Optical</span>
-              <img id="view-split-t1" class="viewport-img" alt="T1 View">
-            </div>
-            <div class="split-pane">
-              <span class="split-label">Timepoint 2 / SAR</span>
-              <img id="view-split-t2" class="viewport-img" alt="T2 View">
-            </div>
-          </div>
-        </div>
-
-        <!-- Change Mask View -->
-        <div class="tab-content" id="tab-change-mask">
-          <div class="image-stage">
-            <img id="view-mask-img" class="viewport-img mask-img" alt="Change Mask">
-          </div>
-        </div>
-
-        <!-- Difference Heatmap View -->
-        <div class="tab-content" id="tab-diff-map">
-          <div class="image-stage">
-            <img id="view-diff-img" class="viewport-img" alt="Difference Probability Heatmap">
-          </div>
-        </div>
-      </div>
-
-      <!-- Cluster / Spatial Details Bar -->
-      <div class="viewer-footer" id="viewer-footer">
-        <div class="stat-pill">
-          <span class="stat-name">Changed Area</span>
-          <span class="stat-val" id="stat-change-pct">-- %</span>
-        </div>
-        <div class="stat-pill">
-          <span class="stat-name">Change Clusters</span>
-          <span class="stat-val" id="stat-clusters">--</span>
-        </div>
-        <div class="stat-pill">
-          <span class="stat-name">Confidence</span>
-          <span class="stat-val" id="stat-confidence">--</span>
-        </div>
-        <div class="stat-pill">
-          <span class="stat-name">Specialist</span>
-          <span class="stat-val" id="stat-model">Ready</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- RIGHT PANE: AI Intelligence, Confidence & Execution Trace -->
-    <aside class="panel right-panel">
-      <div class="panel-header">
-        <h2>AI Intelligence &amp; Reasoning</h2>
-        <span class="panel-tag live-tag">Agent Live</span>
-      </div>
-
-      <!-- Evidence Provenance Badge -->
-      <div class="provenance-strip" id="jarvis-provenance-strip" style="display: none;">
-        <span class="provenance-label">SOURCE OF ANSWER:</span>
-        <span class="provenance-value" id="provenance-source">ChangeFormerV6</span>
-        <span class="provenance-id" id="provenance-id">ID: --</span>
-      </div>
-
-      <!-- AI Response Box -->
-      <div class="intelligence-card">
-        <div class="card-title-row">
-          <span class="card-icon">&#10024;</span>
-          <span class="card-title">Synthesized Answer</span>
-        </div>
-        <div class="answer-body" id="ai-answer">
-          Upload satellite imagery on the left and submit a query or select "Execute Analysis" to begin remote sensing multimodal interpretation.
-        </div>
-      </div>
-
-      <!-- WHY THIS RESULT CARD (JARVIS 2.0) -->
-      <div class="jarvis-card why-result-card" id="why-result-card" style="display: none;">
-        <div class="card-title-row">
-          <span class="card-icon">&#128270;</span>
-          <span class="card-title">Why This Result?</span>
-          <span class="jarvis-mini-tag">Evidence Analysis</span>
-        </div>
-        <div class="why-result-body" id="why-result-body">
-          <div class="detail-row"><strong>Model:</strong> <span id="why-result-model">--</span></div>
-          <div class="detail-row"><strong>Inputs:</strong> <span id="why-result-inputs">--</span></div>
-          <div class="detail-row"><strong>Meaning:</strong> <span id="why-result-meaning">--</span></div>
-          <div class="detail-row"><strong>Confidence:</strong> <span id="why-result-confidence">--</span></div>
-          <div class="detail-row"><strong>Limitations:</strong> <span id="why-result-limitations">--</span></div>
-        </div>
-      </div>
-
-      <!-- Semantic Land Cover / Change Category -->
-      <div class="info-card">
-        <div class="card-title-row">
-          <span class="card-icon">&#127757;</span>
-          <span class="card-title">Land Cover &amp; Semantic Classification</span>
-        </div>
-        <div class="tags-cloud" id="semantic-tags">
-          <span class="tag">ChangeFormerV6 Active</span>
-          <span class="tag">ViLT-B32 VQA</span>
-          <span class="tag">OWL-ViT Grounding</span>
-        </div>
-      </div>
-
-      <!-- WHY THIS MATTERS CARD (JARVIS 2.0) -->
-      <div class="why-matters-card" id="why-matters-card">
-        <div class="card-title-row">
-          <span class="card-icon">&#127757;</span>
-          <span class="card-title">Why This Matters</span>
-        </div>
-        <div class="answer-body why-matters-text" id="why-matters-text">
-          Enable JARVIS Mode and run an analysis to see potential significance.
-        </div>
-      </div>
-
-      <!-- RECOMMENDED NEXT STEP CARD (JARVIS 2.0) -->
-      <div class="jarvis-card recommended-next-card" id="recommended-next-card" style="display: none;">
-        <div class="card-title-row">
-          <span class="card-icon">&#129517;</span>
-          <span class="card-title">Recommended Next Step</span>
-        </div>
-        <div class="answer-body" id="recommended-next-text">
-          Review the largest detected change cluster on the interactive overlay.
-        </div>
-      </div>
-
-      <!-- EXECUTIVE SUMMARY CARD (JARVIS 2.0) -->
-      <div class="exec-summary-card" id="exec-summary-card">
-        <div class="card-title-row">
-          <span class="card-icon">&#128203;</span>
-          <span class="card-title">Executive Summary</span>
-        </div>
-        <div id="exec-summary-content" class="exec-summary-body">
-          <span class="exec-placeholder">Run JARVIS analysis to generate executive summary.</span>
-        </div>
-      </div>
-
-      <!-- JARVIS Agent Progress Trace -->
-      <div class="jarvis-trace-card" id="jarvis-trace-card">
-        <div class="card-title-row">
-          <span class="card-icon">&#9889;</span>
-          <span class="card-title">JARVIS Agent Trace</span>
-          <span class="jarvis-trace-badge">qwen3:8b</span>
-        </div>
-        <ol class="trace-timeline" id="jarvis-trace-list"></ol>
-      </div>
-
-      <!-- Standard Execution Trace Timeline -->
-      <div class="trace-card">
-        <div class="card-title-row">
-          <span class="card-icon">&#9881;</span>
-          <span class="card-title">Standard Execution Trace</span>
-        </div>
-        <ol class="trace-timeline" id="trace-list">
-          <li class="trace-item complete"><span class="step-num">1</span> System initialized</li>
-          <li class="trace-item complete"><span class="step-num">2</span> CUDA environment active</li>
-          <li class="trace-item complete"><span class="step-num">3</span> ChangeFormerV6 adapter ready</li>
-        </ol>
-      </div>
-
-      <!-- Report Export Actions -->
-      <div class="report-actions" style="display: flex; gap: 8px; flex-direction: column;">
-        <button id="btn-download-md" class="btn-secondary" disabled>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Export Markdown Report
-        </button>
-        <button id="btn-download-geojson" class="btn-secondary" style="background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.3);" disabled>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
-          </svg>
-          Export GeoJSON Features
-        </button>
-      </div>
-    </aside>
-
-  </main>
-
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/app.js?v=4.0"></script>
 </body>
 </html>
