@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SatQuery AI — SIH26167 Presentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0a0e17;
+      --card-bg: rgba(18, 26, 42, 0.75);
+      --card-border: rgba(0, 240, 255, 0.2);
+      --primary: #00f0ff;
+      --primary-glow: rgba(0, 240, 255, 0.35);
+      --accent: #8a2be2;
+      --accent-glow: rgba(138, 43, 226, 0.35);
+      --success: #00e676;
+      --warning: #ffb300;
+      --text: #e6edf8;
+      --text-muted: #8e9db7;
+      --radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: radial-gradient(circle at 10% 20%, #0d1527 0%, #060911 90%);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header Nav */
+    .deck-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 32px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(10, 14, 23, 0.85);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #000;
+    }
+
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: rgba(0, 240, 255, 0.15);
+      color: var(--primary);
+      border: 1px solid var(--card-border);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .slide-indicator {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: rgba(0, 240, 255, 0.15);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, var(--primary), #00b4d8);
+      color: #000;
+      font-weight: 600;
+      border: none;
+    }
+
+    .btn.primary:hover {
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+
+    /* Slides Container */
+    .deck-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      position: relative;
+    }
+
+    .slide {
+      display: none;
+      width: 100%;
+      max-width: 1200px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 48px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(16px);
+      animation: fadeIn 0.35s ease-out;
+    }
+
+    .slide.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Typography & Layouts */
+    .slide-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--primary);
+      margin-bottom: 12px;
+      display: inline-block;
+    }
+
+    .slide-title {
+      font-size: 2.4rem;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 16px;
+      background: linear-gradient(90deg, #ffffff, #b4c6e7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .slide-subtitle {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    /* Cards */
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 24px;
+      transition: all 0.25s ease;
+    }
+
+    .card:hover {
+      border-color: rgba(0, 240, 255, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 240, 255, 0.1);
+    }
+
+    .card-icon {
+      font-size: 1.8rem;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .card-desc {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .badge-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 10px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .badge-cyan { background: rgba(0, 240, 255, 0.15); color: var(--primary); border: 1px solid rgba(0, 240, 255, 0.3); }
+    .badge-purple { background: rgba(138, 43, 226, 0.15); color: #c084fc; border: 1px solid rgba(138, 43, 226, 0.3); }
+    .badge-green { background: rgba(0, 230, 118, 0.15); color: var(--success); border: 1px solid rgba(0, 230, 118, 0.3); }
+
+    /* Stat Box */
+    .stat-box {
+      background: rgba(0, 240, 255, 0.05);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--primary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stat-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Images & Mockups */
+    .img-showcase {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      display: block;
+      object-fit: cover;
+    }
+
+    .img-caption {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: 8px;
+      font-style: italic;
+    }
+
+    /* Key-Value Lists */
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 1.05rem;
+      line-height: 1.5;
+    }
+
+    .feature-bullet {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(0, 240, 255, 0.2);
+      border: 1px solid var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      color: var(--primary);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    /* Progress bar */
+    .deck-progress {
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      position: relative;
+    }
+
+    .deck-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      width: 20%;
+      transition: width 0.3s ease;
+    }
+
+    @media (max-width: 900px) {
+      .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+      .slide { padding: 24px; }
+      .slide-title { font-size: 1.8rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header class="deck-header">
+    <div class="brand">
+      <div class="brand-icon">🛰️</div>
+      <div class="brand-title">SatQuery AI</div>
+      <span class="brand-badge">SIH26167</span>
+    </div>
+
+    <div class="nav-controls">
+      <span class="slide-indicator" id="slide-num">Slide 1 of 5</span>
+      <button class="btn" id="prev-btn" onclick="prevSlide()">‹ Previous</button>
+      <button class="btn primary" id="next-btn" onclick="nextSlide()">Next ›</button>
+    </div>
+  </header>
+
+  <!-- Progress Bar -->
+  <div class="deck-progress">
+    <div class="deck-progress-fill" id="progress-bar"></div>
+  </div>
+
+  <!-- Slides Container -->
+  <main class="deck-container">
+
+    <!-- SLIDE 1: Title & Hero -->
+    <section class="slide active" id="slide-1">
+      <span class="slide-tag">Smart India Hackathon • Problem Statement SIH26167</span>
+      <h1 class="slide-title">SatQuery AI & JARVIS 2.0</h1>
+      <p class="slide-subtitle">An Interactive Multimodal Remote-Sensing AI Assistant & Autonomous Earth Observation Copilot</p>
+      
+      <div class="grid-4" style="margin-bottom: 28px;">
+        <div class="stat-box">
+          <div class="stat-value">98.65%</div>
+          <div class="stat-label">Change F1-Score</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value">97.34%</div>
+          <div class="stat-label">Change IoU</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value">23</div>
+          <div class="stat-label">Land-Cover Classes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value">Native</div>
+          <div class="stat-label">GeoTIFF CRS & GeoJSON</div>
+        </div>
+      </div>
+
+      <div class="card" style="border-left: 4px solid var(--primary);">
+        <p style="font-size: 1.05rem; line-height: 1.6; color: #d0ddec;">
+          <strong>Core Innovation:</strong> Bridges the gap between complex multi-sensor satellite imagery (Optical & Synthetic Aperture Radar) and natural language user interactions. Built upon a <strong>Siamese Vision Transformer (ChangeFormerV6)</strong>, <strong>JARVIS Autonomous Agent</strong>, and <strong>calibrated scientific uncertainty metrics</strong>.
+        </p>
+      </div>
+    </section>
+
+    <!-- SLIDE 2: Problem Statement -->
+    <section class="slide" id="slide-2">
+      <span class="slide-tag">Section 1 • Problem Context</span>
+      <h2 class="slide-title">1. Problem Statement (SIH26167)</h2>
+      <p class="slide-subtitle">Challenges in Modern Earth Observation, Satellite Image Exploitation & Geospatial Analysis</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <div class="card-title">1. Satellite Data Deluge & Human Bottleneck</div>
+          <div class="card-desc">
+            Petabytes of bi-temporal satellite imagery are captured daily across Sentinel, Landsat, and commercial satellites. Manual photo-interpretation requires certified GIS analysts and takes hours to days per scene, creating fatal bottlenecks in disaster response and defense.
+          </div>
+          <span class="badge-pill badge-cyan">Data Inundation</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">☁️</div>
+          <div class="card-title">2. Sensor Modality Fragmentation</div>
+          <div class="card-desc">
+            Optical sensors are blinded by heavy clouds, haze, and nighttime. Synthetic Aperture Radar (SAR) penetrates weather but suffers from heavy multiplicative speckle noise, making cross-modal synthesis notoriously difficult.
+          </div>
+          <span class="badge-pill badge-purple">Optical + SAR Mismatch</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🗣️</div>
+          <div class="card-title">3. Lack of Natural Language Interactivity</div>
+          <div class="card-desc">
+            Traditional GIS software (QGIS, ArcGIS) has a steep learning curve. Field commanders, urban planners, and disaster responders cannot ask intuitive questions like <em>"What buildings were constructed since January?"</em> or <em>"Count storage tanks in sector 4"</em>.
+          </div>
+          <span class="badge-pill badge-cyan">No Conversational GIS</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🎯</div>
+          <div class="card-title">4. Hallucinations & Uncertainty in Generic AI</div>
+          <div class="card-desc">
+            Generic Vision-Language Models (VLMs) hallucinate geographic facts and lack pixel-coordinate grounding, geospatial coordinate reference systems (CRS), and verifiable scientific confidence scoring needed for defense and governance.
+          </div>
+          <span class="badge-pill badge-green">Zero-Trust Scientific Need</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 3: Introduction -->
+    <section class="slide" id="slide-3">
+      <span class="slide-tag">Section 2 • System Introduction</span>
+      <h2 class="slide-title">2. Introduction to SatQuery AI</h2>
+      <p class="slide-subtitle">A Unified Multimodal Intelligence Platform for Next-Gen Remote Sensing</p>
+
+      <div class="grid-2" style="margin-bottom: 24px;">
+        <div>
+          <ul class="feature-list">
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>Siamese Vision Transformer (ChangeFormerV6):</strong> Hierarchical encoder-decoder operating on paired bi-temporal captures ($T_1, T_2$) to achieve 98.65% F1-score with jet difference probability heatmaps.</div>
+            </li>
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>Remote Sensing Visual QA (RS-VQA):</strong> Supports multi-task natural language queries across 23 land-cover categories, object counting, and semantic verification.</div>
+            </li>
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>Open-Vocabulary Spatial Text Grounding:</strong> Dynamic feature localization emitting pixel bounding boxes $[y_{min}, x_{min}, y_{max}, x_{max}]$ and mask overlays for queried targets.</div>
+            </li>
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>Optical + SAR Cross-Modal Fusion:</strong> Despeckles SAR via Lee filtering and synthesizes Excess Green (ExG) and NDWI indices for all-weather, cloud-penetrating vision.</div>
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <ul class="feature-list">
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>Native Geospatial GeoTIFF & CRS Pipeline:</strong> Powered by <code>rasterio</code> and <code>shapely</code> to translate raw pixel contours directly into georeferenced WGS84 / UTM polygons.</div>
+            </li>
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>JARVIS 2.0 Autonomous Analyst Copilot:</strong> Local agent orchestrator powered by Ollama reasoning and Neural Text-to-Speech (TTS) for hands-free operational briefings.</div>
+            </li>
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>Scientific Confidence Engine:</strong> Replaces black-box heuristics with mathematically calibrated uncertainty derived from softmax margins, spatial entropy, and cross-modal agreement.</div>
+            </li>
+            <li class="feature-item">
+              <div class="feature-bullet">✓</div>
+              <div><strong>GIS Interoperability:</strong> Instant 1-click export of detected changes into standard GeoJSON <code>FeatureCollections</code> and formatted analytical reports.</div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 4: Services We Have Used -->
+    <section class="slide" id="slide-4">
+      <span class="slide-tag">Section 3 • Technical Architecture</span>
+      <h2 class="slide-title">3. Services We Have Used</h2>
+      <p class="slide-subtitle">Modular Microservice Architecture Spanning Deep Learning, GIS, and Agent Orchestration</p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon">🧠</div>
+          <div class="card-title">1. AI Specialist Inference Services</div>
+          <div class="card-desc">
+            • <strong>ChangeFormerV6:</strong> Transformer-based Siamese network for pixel-level change detection.<br>
+            • <strong>RS-VQA Engine:</strong> Dual-head ResNet50 & ViLT for scene recognition and counting.<br>
+            • <strong>Spatial Grounding:</strong> Multi-scale FPN and OWL-ViT for bounding box localization.<br>
+            • <strong>Qwen2-VL-2B:</strong> Multimodal vision model extracting 18-attribute scene context.
+          </div>
+          <span class="badge-pill badge-cyan">PyTorch / CUDA</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <div class="card-title">2. Backend Microservice Layer</div>
+          <div class="card-desc">
+            • <strong>FastAPI Async Server:</strong> Non-blocking REST endpoints with automated OpenAPI / Swagger documentation.<br>
+            • <strong>Model Registry & Lazy Loader:</strong> Dynamic specialist dispatch preventing VRAM exhaustion.<br>
+            • <strong>Task Dependency Planner:</strong> DAG execution resolving prerequisite steps.
+          </div>
+          <span class="badge-pill badge-purple">FastAPI / Uvicorn</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🗺️</div>
+          <div class="card-title">3. Geospatial & Processing Services</div>
+          <div class="card-desc">
+            • <strong>Rasterio CRS Engine:</strong> WGS84, UTM coordinate projection & affine matrix conversion.<br>
+            • <strong>Shapely Vectorizer:</strong> Contours-to-polygon conversion.<br>
+            • <strong>GeoJSON Exporter:</strong> Direct export for QGIS / ArcGIS.<br>
+            • <strong>Lee SAR Despeckling:</strong> Multiplicative noise suppression.
+          </div>
+          <span class="badge-pill badge-green">Rasterio / Shapely</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🤖</div>
+          <div class="card-title">4. Autonomous Agent (JARVIS 2.0)</div>
+          <div class="card-desc">
+            • <strong>Ollama Local LLM:</strong> Executes <code>qwen3:8b</code> / <code>llama3</code> for multi-step reasoning.<br>
+            • <strong>Execution Tracer:</strong> Real-time logging of tool selection and sub-task latency.<br>
+            • <strong>Confidence Engine:</strong> Calculates spatial entropy and certainty metrics.
+          </div>
+          <span class="badge-pill badge-cyan">Ollama Service</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">🎙️</div>
+          <div class="card-title">5. Voice & Multimodal Audio Services</div>
+          <div class="card-desc">
+            • <strong>Neural Text-to-Speech (TTS):</strong> Natural speech synthesis for operational briefings.<br>
+            • <strong>Speech Normalization:</strong> Custom filters formatting coordinates, percentages, and acronyms for clear spoken output.<br>
+            • <strong>Real-time Audio Streaming:</strong> Direct browser playback.
+          </div>
+          <span class="badge-pill badge-purple">Neural TTS</span>
+        </div>
+
+        <div class="card">
+          <div class="card-icon">💻</div>
+          <div class="card-title">6. Frontend Geospatial Dashboard</div>
+          <div class="card-desc">
+            • <strong>Interactive Canvas:</strong> Side-by-side $T_1/T_2$ swipe and synchronized zoom.<br>
+            • <strong>Overlay Engine:</strong> Jet difference colormaps & vector bounding boxes.<br>
+            • <strong>JARVIS Copilot Drawer:</strong> Live natural language console with voice response toggles.
+          </div>
+          <span class="badge-pill badge-green">HTML5 / Vanilla CSS / ES6</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 5: Screenshot of Services -->
+    <section class="slide" id="slide-5">
+      <span class="slide-tag">Section 4 • Live Visual Evidence</span>
+      <h2 class="slide-title">4. Screenshots of Services</h2>
+      <p class="slide-subtitle">Visual Overview of the Deployed SatQuery AI Platform & Detection Pipelines</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title" style="margin-bottom: 12px;">🖥️ SatQuery AI Interactive Dashboard & JARVIS Copilot</div>
+          <img src="C:/Users/dunca/.gemini/antigravity-ide/brain/44261a54-977c-4e87-b50a-231562f2926c/satquery_dashboard_ui_1792607117715.jpg" alt="SatQuery AI Dashboard" class="img-showcase" style="height: 240px;">
+          <div class="img-caption">Dual bi-temporal viewer, jet difference heatmap, bounding box grounding badges, and conversational JARVIS copilot.</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="margin-bottom: 12px;">📊 ChangeFormerV6 Bi-Temporal Detection Benchmarks</div>
+          <img src="C:/Users/dunca/.gemini/antigravity-ide/brain/44261a54-977c-4e87-b50a-231562f2926c/IGARS_ChangeFormer-LEVIR_DSFIN_both.png" alt="ChangeFormerV6 Results" class="img-showcase" style="height: 240px;">
+          <div class="img-caption">Comparison on LEVIR-CD and DSIFN datasets: Time 1, Time 2, Ground Truth, and ChangeFormerV6 predictions vs. baseline models.</div>
+        </div>
+      </div>
+
+      <div class="grid-3" style="margin-top: 20px;">
+        <div class="card" style="padding: 16px;">
+          <div style="font-weight: 600; font-size: 0.95rem; color: var(--primary);">🌐 REST Microservice API</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">FastAPI Swagger interactive docs exposing <code>/analyze</code>, <code>/validate</code>, <code>/vision/context</code>, and <code>/benchmark</code>.</div>
+        </div>
+        <div class="card" style="padding: 16px;">
+          <div style="font-weight: 600; font-size: 0.95rem; color: #c084fc;">🗺️ Geospatial CRS & GeoJSON Export</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Rasterio transformation engine projecting pixel clusters into standard EPSG:4326 GIS polygon layers.</div>
+        </div>
+        <div class="card" style="padding: 16px;">
+          <div style="font-weight: 600; font-size: 0.95rem; color: var(--success);">🎙️ Neural Voice & Copilot Debrief</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Ollama <code>qwen3:8b</code> reasoning engine synthesized into spoken voice briefings with calibrated confidence.</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    let currentSlide = 1;
+    const totalSlides = 5;
+
+    function updateSlide() {
+      for (let i = 1; i <= totalSlides; i++) {
+        const slide = document.getElementById(`slide-${i}`);
+        if (slide) {
+          slide.classList.remove('active');
+        }
+      }
+      const activeSlide = document.getElementById(`slide-${currentSlide}`);
+      if (activeSlide) {
+        activeSlide.classList.add('active');
+      }
+
+      document.getElementById('slide-num').innerText = `Slide ${currentSlide} of ${totalSlides}`;
+      document.getElementById('progress-bar').style.width = `${(currentSlide / totalSlides) * 100}%`;
+
+      document.getElementById('prev-btn').disabled = currentSlide === 1;
+      document.getElementById('next-btn').innerText = currentSlide === totalSlides ? "Restart ↺" : "Next ›";
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) {
+        currentSlide++;
+      } else {
+        currentSlide = 1;
+      }
+      updateSlide();
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    // Keyboard navigation (Arrow keys)
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        prevSlide();
+      }
+    });
+
+    updateSlide();
+  </script>
+</body>
+</html>
